@@ -41,8 +41,11 @@ export default function Home() {
   const [newTodoFolder, setNewTodoFolder] = useState('');
   const [newTodoTime, setNewTodoTime] = useState('');
   const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
-  const [showTodoActions, setShowTodoActions] = useState<string | null>(null);
-  const [longPressTimer, setLongPressTimer] = useState<NodeJS.Timeout | null>(null);
+  const [todoSwipeOffsets, setTodoSwipeOffsets] = useState<Record<string, number>>({});
+  const [swipeStartX, setSwipeStartX] = useState<number | null>(null);
+  const [swipeTodoId, setSwipeTodoId] = useState<string | null>(null);
+
+  const SWIPE_ACTION_WIDTH = 140;
 
   // Folders state (now mutable) - start with empty array
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -157,8 +160,8 @@ export default function Home() {
   };
 
   const toggleTodoComplete = (todoId: string) => {
-    // Don't toggle if showing actions menu
-    if (showTodoActions === todoId) return;
+    // Don't toggle if swipe actions are open
+    if (getSwipeOffset(todoId) < 0) return;
     setTodos(todos.map(todo => 
       todo.id === todoId ? { ...todo, completed: !todo.completed } : todo
     ));
@@ -166,31 +169,46 @@ export default function Home() {
 
   const deleteTodo = (todoId: string) => {
     setTodos(todos.filter(todo => todo.id !== todoId));
-    setShowTodoActions(null);
+    setTodoSwipeOffsets(prev => ({ ...prev, [todoId]: 0 }));
   };
 
   const startEditTodo = (todo: Todo) => {
     setEditingTodo(todo);
     setNewTodoText(todo.text);
     setNewTodoFolder(todo.folderId);
-    setNewTodoTime(todo.time ? todo.time.replace(' Uhr', '') : '');
-    setShowAddTodoModal(true);
-    setShowTodoActions(null);
-  };
-
-
-  const handleTodoLongPress = (todoId: string) => {
-    const timer = setTimeout(() => {
-      setShowTodoActions(todoId);
-    }, 500); // 500ms long press
-    setLongPressTimer(timer);
-  };
-
-  const handleTodoPressEnd = () => {
-    if (longPressTimer) {
-      clearTimeout(longPressTimer);
-      setLongPressTimer(null);
+    // Convert "18 Uhr" to "18:00" for time input
+    if (todo.time) {
+      const match = todo.time.match(/(\d+)/);
+      setNewTodoTime(match ? `${String(match[1]).padStart(2, '0')}:00` : '');
+    } else {
+      setNewTodoTime('');
     }
+    setShowAddTodoModal(true);
+    setTodoSwipeOffsets(prev => ({ ...prev, [todo.id]: 0 }));
+  };
+
+  const getSwipeOffset = (todoId: string) => todoSwipeOffsets[todoId] ?? 0;
+
+  const handleSwipeStart = (todoId: string, clientX: number) => {
+    setSwipeStartX(clientX);
+    setSwipeTodoId(todoId);
+  };
+
+  const handleSwipeMove = (todoId: string, clientX: number) => {
+    if (swipeTodoId !== todoId || swipeStartX === null) return;
+    const diff = clientX - swipeStartX; // negative when swiping left
+    const current = getSwipeOffset(todoId);
+    const newOffset = Math.min(0, Math.max(-SWIPE_ACTION_WIDTH, current + diff));
+    setTodoSwipeOffsets(prev => ({ ...prev, [todoId]: newOffset }));
+    setSwipeStartX(clientX);
+  };
+
+  const handleSwipeEnd = (todoId: string) => {
+    const offset = getSwipeOffset(todoId);
+    const snapOpen = offset < -SWIPE_ACTION_WIDTH / 2;
+    setTodoSwipeOffsets(prev => ({ ...prev, [todoId]: snapOpen ? -SWIPE_ACTION_WIDTH : 0 }));
+    setSwipeStartX(null);
+    setSwipeTodoId(null);
   };
 
   const addTodo = () => {
@@ -299,7 +317,18 @@ export default function Home() {
               
               {/* Month Picker Dropdown */}
               {showMonthPicker && (
-                <div id="month-picker-dropdown" className="absolute top-full left-1/2 transform -translate-x-1/2 mt-2 bg-white rounded-lg shadow-lg p-4 z-50 grid grid-cols-3 gap-2 min-w-[200px]">
+                <>
+                  <div
+                    id="month-picker-overlay"
+                    className="fixed inset-0 z-40"
+                    onClick={() => setShowMonthPicker(false)}
+                    aria-hidden="true"
+                  />
+                  <div
+                    id="month-picker-dropdown"
+                    className="absolute top-full left-1/2 transform -translate-x-1/2 mt-2 bg-white rounded-lg shadow-lg p-4 z-50 grid grid-cols-3 gap-2 min-w-[200px]"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                   {months.map((month, index) => {
                     const today = new Date();
                     const isCurrentMonth = today.getMonth() === index && today.getFullYear() === currentMonth.getFullYear();
@@ -327,7 +356,8 @@ export default function Home() {
                       </button>
                     );
                   })}
-                </div>
+                  </div>
+                </>
               )}
             </div>
           )}
@@ -665,81 +695,101 @@ export default function Home() {
                 {currentTodos.map((todo, index) => {
                   const folderColor = getFolderColor(todo.folderId);
                   const isOverdueTask = isOverdue(todo);
+                  const swipeOffset = getSwipeOffset(todo.id);
+                  const isSwipedOpen = swipeOffset < 0;
                   
                   return (
                     <div
                       key={`${displayDay.toISOString()}-${todo.id}`}
-                      id={`todo-item-${todo.id}`}
-                      className={`rounded-lg p-4 flex items-center gap-3 cursor-pointer hover:bg-gray-50 transition-colors relative ${
-                        isOverdueTask ? 'bg-red-50' : 'bg-white'
-                      }`}
-                      onClick={() => toggleTodoComplete(todo.id)}
-                      onTouchStart={() => handleTodoLongPress(todo.id)}
-                      onTouchEnd={handleTodoPressEnd}
-                      onMouseDown={() => handleTodoLongPress(todo.id)}
-                      onMouseUp={handleTodoPressEnd}
-                      onMouseLeave={handleTodoPressEnd}
+                      id={`todo-item-wrapper-${todo.id}`}
+                      className="rounded-lg overflow-hidden relative"
                       style={{
                         animation: `slideUpFromBottom 0.4s cubic-bezier(0.4, 0, 0.2, 1) ${index * 0.05}s both`,
                       }}
                     >
-                      {/* Todo Actions Menu */}
-                      {showTodoActions === todo.id && (
-                        <div 
-                          id={`todo-actions-${todo.id}`}
-                          className="absolute right-0 top-full mt-2 bg-white rounded-lg shadow-lg border border-gray-200 z-50 min-w-[120px]"
-                          onClick={(e) => e.stopPropagation()}
+                      {/* Action buttons (revealed on swipe left) */}
+                      <div
+                        id={`todo-actions-${todo.id}`}
+                        className="absolute right-0 top-0 bottom-0 w-[140px] flex z-0 rounded-r-lg overflow-hidden"
+                      >
+                        <button
+                          id={`edit-todo-${todo.id}`}
+                          onClick={() => startEditTodo(todo)}
+                          className="flex-1 flex items-center justify-center bg-[#222222] text-white text-xs font-medium hover:bg-[#333333] transition-colors rounded-l-lg"
                         >
-                          <button
-                            id={`edit-todo-${todo.id}`}
-                            onClick={() => startEditTodo(todo)}
-                            className="w-full px-4 py-2 text-left text-sm text-[#222222] hover:bg-gray-50 rounded-t-lg"
-                          >
-                            Bearbeiten
-                          </button>
-                          <button
-                            id={`delete-todo-${todo.id}`}
-                            onClick={() => deleteTodo(todo.id)}
-                            className="w-full px-4 py-2 text-left text-sm text-red-500 hover:bg-gray-50 rounded-b-lg"
-                          >
-                            Löschen
-                          </button>
+                          Bearbeiten
+                        </button>
+                        <button
+                          id={`delete-todo-${todo.id}`}
+                          onClick={() => deleteTodo(todo.id)}
+                          className="flex-1 flex items-center justify-center bg-red-500 text-white text-xs font-medium hover:bg-red-600 transition-colors rounded-r-lg"
+                        >
+                          Löschen
+                        </button>
+                      </div>
+
+                      {/* Sliding content */}
+                      <div
+                        id={`todo-item-${todo.id}`}
+                        className={`relative z-10 rounded-lg p-4 flex items-center gap-3 cursor-pointer hover:bg-gray-50 transition-transform duration-200 ease-out ${
+                          isOverdueTask ? 'bg-red-50' : 'bg-white'
+                        }`}
+                        style={{
+                          transform: `translateX(${swipeOffset}px)`,
+                          touchAction: 'pan-y',
+                        }}
+                        onClick={() => {
+                          if (!isSwipedOpen) toggleTodoComplete(todo.id);
+                        }}
+                        onTouchStart={(e) => handleSwipeStart(todo.id, e.touches[0].clientX)}
+                        onTouchMove={(e) => handleSwipeMove(todo.id, e.touches[0].clientX)}
+                        onTouchEnd={() => handleSwipeEnd(todo.id)}
+                        onMouseDown={(e) => handleSwipeStart(todo.id, e.clientX)}
+                        onMouseMove={(e) => {
+                          if (swipeTodoId === todo.id && e.buttons === 1) {
+                            handleSwipeMove(todo.id, e.clientX);
+                          }
+                        }}
+                        onMouseUp={() => handleSwipeEnd(todo.id)}
+                        onMouseLeave={() => {
+                          if (swipeTodoId === todo.id) handleSwipeEnd(todo.id);
+                        }}
+                      >
+                        <div
+                          id={`todo-circle-${todo.id}`}
+                          className={`w-5 h-5 rounded-full border-2 flex-shrink-0 transition-all ${
+                            todo.completed ? '' : ''
+                          }`}
+                          style={{
+                            borderColor: isOverdueTask ? '#EF4444' : folderColor,
+                            backgroundColor: todo.completed ? (isOverdueTask ? '#EF4444' : folderColor) : 'transparent',
+                          }}
+                        />
+                        
+                        <div id={`todo-content-${todo.id}`} className="flex-1 min-w-0">
+                          {todo.time && (
+                            <span id={`todo-time-${todo.id}`} className={`text-xs text-[#7D7D7D] block ${todo.completed ? 'line-through opacity-60' : ''}`}>
+                              {todo.time.includes(':') ? todo.time.split(':')[0] + ' Uhr' : todo.time}
+                            </span>
+                          )}
+                          <span id={`todo-text-${todo.id}`} className={`text-[#222222] block ${todo.completed ? 'line-through opacity-60' : ''}`}>
+                            {todo.text}
+                          </span>
+                          {isOverdueTask && (
+                            <span id={`todo-overdue-date-${todo.id}`} className={`text-xs text-red-500 block mt-1 ${todo.completed ? 'line-through opacity-60' : ''}`}>
+                              {getOverdueOriginalDate(todo)}
+                            </span>
+                          )}
                         </div>
-                      )}
-                    <div
-                      id={`todo-circle-${todo.id}`}
-                      className={`w-5 h-5 rounded-full border-2 flex-shrink-0 transition-all ${
-                        todo.completed ? '' : ''
-                      }`}
-                      style={{
-                        borderColor: isOverdueTask ? '#EF4444' : folderColor,
-                        backgroundColor: todo.completed ? (isOverdueTask ? '#EF4444' : folderColor) : 'transparent',
-                      }}
-                    />
-                    
-                    <div id={`todo-content-${todo.id}`} className="flex-1 min-w-0">
-                      {todo.time && (
-                        <span id={`todo-time-${todo.id}`} className={`text-xs text-[#7D7D7D] block ${todo.completed ? 'line-through opacity-60' : ''}`}>
-                          {todo.time.includes(':') ? todo.time.split(':')[0] + ' Uhr' : todo.time}
-                        </span>
-                      )}
-                      <span id={`todo-text-${todo.id}`} className={`text-[#222222] block ${todo.completed ? 'line-through opacity-60' : ''}`}>
-                        {todo.text}
-                      </span>
-                      {isOverdueTask && (
-                        <span id={`todo-overdue-date-${todo.id}`} className={`text-xs text-red-500 block mt-1 ${todo.completed ? 'line-through opacity-60' : ''}`}>
-                          {getOverdueOriginalDate(todo)}
-                        </span>
-                      )}
-                    </div>
-                    
-                    <div
-                      id={`todo-tag-${todo.id}`}
-                      className="px-2 py-1 rounded text-xs text-white flex-shrink-0"
-                      style={{ backgroundColor: folderColor }}
-                    >
-                      {getFolderName(todo.folderId)}
-                    </div>
+                        
+                        <div
+                          id={`todo-tag-${todo.id}`}
+                          className="px-2 py-1 rounded text-xs text-white flex-shrink-0"
+                          style={{ backgroundColor: folderColor }}
+                        >
+                          {getFolderName(todo.folderId)}
+                        </div>
+                      </div>
                     </div>
                   );
                 })}
