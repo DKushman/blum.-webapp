@@ -35,6 +35,7 @@ export default function Home() {
   const [showFolderModal, setShowFolderModal] = useState(false);
   const [filterModalCheckedIds, setFilterModalCheckedIds] = useState<Set<string>>(new Set());
   const [showAddFolderFromTodoModal, setShowAddFolderFromTodoModal] = useState(false);
+  const [addTodoStep, setAddTodoStep] = useState<1 | 2>(1);
   const [showAddTodoModal, setShowAddTodoModal] = useState(false);
   const [showMonthPicker, setShowMonthPicker] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
@@ -220,6 +221,7 @@ export default function Home() {
     } else {
       setNewTodoTime('');
     }
+    setAddTodoStep(2);
     setShowAddTodoModal(true);
     setTodoSwipeOffsets(prev => ({ ...prev, [todo.id]: 0 }));
   };
@@ -338,6 +340,7 @@ export default function Home() {
     setNewTodoText('');
     setNewTodoFolder('');
     setNewTodoTime('');
+    setAddTodoStep(1);
     setShowAddTodoModal(false);
   };
 
@@ -590,7 +593,14 @@ export default function Home() {
               
               <button
                 id="quick-add-btn"
-                onClick={() => setShowAddTodoModal(true)}
+                onClick={() => {
+                  setAddTodoStep(1);
+                  setNewTodoText('');
+                  setNewTodoFolder('');
+                  setNewTodoTime('');
+                  setEditingTodo(null);
+                  setShowAddTodoModal(true);
+                }}
                 className="bg-white rounded-lg p-4 flex items-center justify-center hover:bg-gray-50 transition-colors"
               >
                 <span id="plus-icon" className="text-3xl font-light text-[#222222]">+</span>
@@ -672,6 +682,16 @@ export default function Home() {
                     className="w-full px-4 py-3 bg-[#222222] text-white rounded-lg hover:bg-[#333333] transition-colors font-medium"
                   >
                     Filter anwenden
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddFolderFromTodoModal(true)}
+                    className="w-full mt-3 px-4 py-2 border-2 border-gray-200 rounded-lg text-[#222222] hover:bg-gray-50 transition-colors font-medium flex items-center justify-center gap-2"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                    </svg>
+                    Ordner hinzufügen
                   </button>
                 </div>
               </div>
@@ -758,114 +778,137 @@ export default function Home() {
               </div>
             )}
 
-            {/* Add Todo Modal */}
+            {/* Add Todo Modal (two-step: Dein To-Do → folder/time + Set) */}
             {showAddTodoModal && (
-              <div id="add-todo-modal-overlay" className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setShowAddTodoModal(false)}>
-                <div id="add-todo-modal" className="bg-white rounded-lg p-6 w-full max-w-md mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-                  <div className="flex items-center justify-between mb-6">
-                    <h2 id="add-todo-modal-title" className="text-xl font-bold text-[#222222]">
-                      {editingTodo ? 'Aufgabe bearbeiten' : 'Neue Aufgabe'}
-                    </h2>
-                    <button
-                      id="add-folder-from-todo-btn"
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); setShowAddFolderFromTodoModal(true); }}
-                      className="p-2 rounded-lg hover:bg-gray-100 flex items-center gap-2 text-[#222222]"
-                      title="Ordner hinzufügen"
-                    >
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                      </svg>
-                      <span className="text-sm font-medium">Ordner hinzufügen</span>
-                    </button>
-                  </div>
-                  
-                  <div id="add-todo-form" className="space-y-5">
-                    <div id="todo-text-field">
-                      <input
-                        id="todo-text-input"
-                        type="text"
-                        value={newTodoText}
-                        onChange={(e) => setNewTodoText(e.target.value)}
-                        placeholder="Was möchtest du erledigen?"
-                        className="w-full px-4 py-3 text-lg border-2 border-gray-200 rounded-xl text-[#222222] focus:border-[#222222] focus:outline-none transition-colors"
-                        autoFocus
-                      />
-                    </div>
-                    
-                    <div id="todo-folder-field">
-                      <label id="todo-folder-label" className="block text-sm font-medium text-[#7D7D7D] mb-2">
-                        Ordner (optional)
-                      </label>
-                      <div id="folder-options" className="grid grid-cols-2 gap-2">
-                        <button
-                          id="folder-option-none"
-                          onClick={() => setNewTodoFolder('')}
-                          className={`px-4 py-3 rounded-xl border-2 transition-all flex items-center gap-2 ${
-                            !newTodoFolder ? 'border-[#222222] bg-gray-50' : 'border-gray-200 hover:border-gray-300'
-                          }`}
-                        >
-                          <span id="folder-option-name-none" className="text-sm font-medium text-[#222222]">Kein Ordner</span>
-                        </button>
-                        {folders.map(folder => (
+              <div id="add-todo-modal-overlay" className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => { setShowAddTodoModal(false); setAddTodoStep(1); }}>
+                <div id="add-todo-modal" className="bg-white rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                  {addTodoStep === 1 && !editingTodo ? (
+                    <>
+                      <h2 id="add-todo-modal-title" className="text-xl font-bold text-[#222222] text-center mb-6">Dein To-Do</h2>
+                      <div id="add-todo-form" className="space-y-6">
+                        <textarea
+                          id="todo-text-input"
+                          value={newTodoText}
+                          onChange={(e) => {
+                            setNewTodoText(e.target.value);
+                            const ta = e.target;
+                            ta.style.height = 'auto';
+                            ta.style.height = ta.scrollHeight + 'px';
+                          }}
+                          placeholder="Was möchtest du erledigen?"
+                          rows={1}
+                          className="w-full min-h-[3rem] max-h-48 px-4 py-3 text-lg border-2 border-gray-200 rounded-xl text-[#222222] focus:border-[#222222] focus:outline-none transition-colors resize-none overflow-y-auto box-border"
+                          autoFocus
+                        />
+                        <div className="flex justify-center">
                           <button
-                            key={folder.id}
-                            id={`folder-option-${folder.id}`}
-                            onClick={() => setNewTodoFolder(folder.id)}
-                            className={`px-4 py-3 rounded-xl border-2 transition-all flex items-center gap-2 ${
-                              newTodoFolder === folder.id ? 'border-[#222222] bg-gray-50' : 'border-gray-200 hover:border-gray-300'
-                            }`}
+                            type="button"
+                            onClick={() => newTodoText.trim() && setAddTodoStep(2)}
+                            disabled={!newTodoText.trim()}
+                            className="w-14 h-14 rounded-full border-2 border-[#222222] flex items-center justify-center text-[#222222] hover:bg-[#222222] hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-[#222222]"
+                            aria-label="Weiter"
                           >
-                            <div
-                              id={`folder-option-color-${folder.id}`}
-                              className="w-4 h-4 rounded-full flex-shrink-0"
-                              style={{ backgroundColor: folder.color }}
-                            />
-                            <span id={`folder-option-name-${folder.id}`} className="text-sm font-medium text-[#222222]">
-                              {folder.name}
-                            </span>
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M5 12h14M12 5l7 7-7 7" />
+                            </svg>
                           </button>
-                        ))}
+                        </div>
                       </div>
-                    </div>
-                    
-                    <div id="todo-time-field">
-                      <label id="todo-time-label" className="block text-sm font-medium text-[#7D7D7D] mb-2">
-                        Zeit (optional)
-                      </label>
-                      <input
-                        id="todo-time-input"
-                        type="time"
-                        value={newTodoTime || ''}
-                        onChange={(e) => setNewTodoTime(e.target.value || '')}
-                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl text-[#222222] focus:border-[#222222] focus:outline-none transition-colors"
-                      />
-                    </div>
-                    
-                    <div id="add-todo-actions" className="flex gap-3 pt-2">
-                      <button
-                        id="cancel-todo-btn"
-                        onClick={() => {
-                          setShowAddTodoModal(false);
-                          setNewTodoText('');
-                          setNewTodoFolder('');
-                          setNewTodoTime('');
-                          setEditingTodo(null);
-                        }}
-                        className="flex-1 px-4 py-3 border-2 border-gray-200 rounded-xl text-[#222222] hover:bg-gray-50 transition-colors font-medium"
-                      >
-                        Abbrechen
-                      </button>
-                      <button
-                        id="save-todo-btn"
-                        onClick={addTodo}
-                        disabled={!newTodoText.trim()}
-                        className="flex-1 px-4 py-3 bg-[#222222] text-white rounded-xl hover:bg-[#333333] transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {editingTodo ? 'Speichern' : 'Hinzufügen'}
-                      </button>
-                    </div>
-                  </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between mb-6">
+                        {!editingTodo ? (
+                          <button
+                            type="button"
+                            onClick={() => setAddTodoStep(1)}
+                            className="text-sm text-[#7D7D7D] hover:text-[#222222] flex items-center gap-1"
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M19 12H5M12 19l-7-7 7-7" />
+                            </svg>
+                            Zurück
+                          </button>
+                        ) : (
+                          <span />
+                        )}
+                        <button
+                          id="add-folder-from-todo-btn"
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setShowAddFolderFromTodoModal(true); }}
+                          className="p-2 rounded-lg hover:bg-gray-100 flex items-center gap-2 text-[#222222] text-sm"
+                          title="Ordner hinzufügen"
+                        >
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                          </svg>
+                          Ordner hinzufügen
+                        </button>
+                      </div>
+                      <h2 id="add-todo-modal-title" className="text-xl font-bold text-[#222222] mb-6">
+                        {editingTodo ? 'Aufgabe bearbeiten' : 'Ordner & Zeit'}
+                      </h2>
+                      <div id="add-todo-form" className="space-y-5">
+                        <div id="todo-folder-field">
+                          <label id="todo-folder-label" className="block text-sm font-medium text-[#7D7D7D] mb-2">Ordner (optional)</label>
+                          <div id="folder-options" className="grid grid-cols-2 gap-2">
+                            <button
+                              id="folder-option-none"
+                              onClick={() => setNewTodoFolder('')}
+                              className={`px-4 py-3 rounded-xl border-2 transition-all flex items-center gap-2 ${!newTodoFolder ? 'border-[#222222] bg-gray-50' : 'border-gray-200 hover:border-gray-300'}`}
+                            >
+                              <span className="text-sm font-medium text-[#222222]">Kein Ordner</span>
+                            </button>
+                            {folders.map(folder => (
+                              <button
+                                key={folder.id}
+                                id={`folder-option-${folder.id}`}
+                                onClick={() => setNewTodoFolder(folder.id)}
+                                className={`px-4 py-3 rounded-xl border-2 transition-all flex items-center gap-2 ${newTodoFolder === folder.id ? 'border-[#222222] bg-gray-50' : 'border-gray-200 hover:border-gray-300'}`}
+                              >
+                                <div className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: folder.color }} />
+                                <span className="text-sm font-medium text-[#222222]">{folder.name}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div id="todo-time-field">
+                          <label id="todo-time-label" className="block text-sm font-medium text-[#7D7D7D] mb-2">Zeit (optional)</label>
+                          <input
+                            id="todo-time-input"
+                            type="time"
+                            value={newTodoTime || ''}
+                            onChange={(e) => setNewTodoTime(e.target.value || '')}
+                            className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl text-[#222222] focus:border-[#222222] focus:outline-none transition-colors"
+                          />
+                        </div>
+                        <div id="add-todo-actions" className="flex gap-3 pt-2">
+                          <button
+                            id="cancel-todo-btn"
+                            onClick={() => {
+                              setShowAddTodoModal(false);
+                              setNewTodoText('');
+                              setNewTodoFolder('');
+                              setNewTodoTime('');
+                              setEditingTodo(null);
+                              setAddTodoStep(1);
+                            }}
+                            className="flex-1 px-4 py-3 border-2 border-gray-200 rounded-xl text-[#222222] hover:bg-gray-50 transition-colors font-medium"
+                          >
+                            Abbrechen
+                          </button>
+                          <button
+                            id="save-todo-btn"
+                            onClick={addTodo}
+                            disabled={!newTodoText.trim()}
+                            className="flex-1 px-4 py-3 bg-[#222222] text-white rounded-xl hover:bg-[#333333] transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {editingTodo ? 'Speichern' : 'Set'}
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             )}
