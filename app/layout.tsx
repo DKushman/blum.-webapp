@@ -1,16 +1,49 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
+const meineSchrift = localFont({
+  src: [
+    {
+      path: "./fonts/Chillax-ExtraLight.ttf",
+      weight: "200",
+      style: "normal",
+    },
+    {
+      path: "./fonts/Chillax-Light.ttf",
+      weight: "300",
+      style: "normal",
+    },
+    {
+      path: "./fonts/Chillax-Regular.ttf",
+      weight: "400",
+      style: "normal",
+    },
+    {
+      path: "./fonts/Chillax-Medium.ttf",
+      weight: "500",
+      style: "normal",
+    },
+    {
+      path: "./fonts/Chillax-SemiBold.ttf",
+      weight: "600",
+      style: "normal",
+    },
+    {
+      path: "./fonts/Chillax-Bold.ttf",
+      weight: "700",
+      style: "normal",
+    },
+    {
+      path: "./fonts/Chillax-Variable.ttf",
+      weight: "900",
+      style: "normal",
+    },
+  ],
+  variable: "--font-chillax",
+  display: "swap",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "Create Next App",
@@ -25,8 +58,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
+        className={`${meineSchrift.variable} antialiased`}>
         {children}
       </body>
     </html>
