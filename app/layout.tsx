@@ -5,7 +5,7 @@ import "./globals.css";
 const meineSchrift = localFont({
   src: [
     {
-      path: "./fonts/Chillax-ExtraLight.ttf",
+      path: "./fonts/Chillax-Extralight.ttf",
       weight: "200",
       style: "normal",
     },
@@ -25,7 +25,7 @@ const meineSchrift = localFont({
       style: "normal",
     },
     {
-      path: "./fonts/Chillax-SemiBold.ttf",
+      path: "./fonts/Chillax-Semibold.ttf",
       weight: "600",
       style: "normal",
     },
