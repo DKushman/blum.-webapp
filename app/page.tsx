@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 type Folder = {
   id: string;
@@ -11,7 +11,7 @@ type Folder = {
 type Todo = {
   id: string;
   text: string;
-  folderId: string;
+  folderId?: string; // optional - can be without folder
   time?: string;
   date: string; // YYYY-MM-DD format
   completed: boolean;
@@ -30,8 +30,11 @@ export default function Home() {
   const [selectedDay, setSelectedDay] = useState<Date>(new Date());
   const [chosenDayFromCalendar, setChosenDayFromCalendar] = useState<Date>(new Date()); // Last day chosen from monthly overview
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
-  const [selectedFolderFilter, setSelectedFolderFilter] = useState<string | null>(null);
+  const [selectedFolderFilters, setSelectedFolderFilters] = useState<string[]>([]);
+  const [showFilterModal, setShowFilterModal] = useState(false);
   const [showFolderModal, setShowFolderModal] = useState(false);
+  const [filterModalCheckedIds, setFilterModalCheckedIds] = useState<Set<string>>(new Set());
+  const [showAddFolderFromTodoModal, setShowAddFolderFromTodoModal] = useState(false);
   const [showAddTodoModal, setShowAddTodoModal] = useState(false);
   const [showMonthPicker, setShowMonthPicker] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
@@ -47,6 +50,10 @@ export default function Home() {
   const [swipeTodoId, setSwipeTodoId] = useState<string | null>(null);
 
   const SWIPE_ACTION_WIDTH = 140;
+
+  // Ref for document-level mouse drag (so drag works when cursor leaves the row)
+  const mouseDragRef = useRef<{ todoId: string; startX: number; offset: number } | null>(null);
+  const didMouseDragRef = useRef(false);
 
   // Load folders from localStorage on mount
   const [folders, setFolders] = useState<Folder[]>(() => {
@@ -102,20 +109,21 @@ export default function Home() {
     selectedDate.setHours(0, 0, 0, 0);
     const isToday = selectedDate.getTime() === today.getTime();
     
-    return todos.filter(todo => {
-      if (selectedFolderFilter && todo.folderId !== selectedFolderFilter) return false;
+    const filtered = todos.filter(todo => {
+      if (selectedFolderFilters.length > 0) {
+        const folderId = todo.folderId ?? '';
+        if (!selectedFolderFilters.includes(folderId)) return false;
+      }
       
       const todoDate = new Date(todo.date + 'T00:00:00');
       todoDate.setHours(0, 0, 0, 0);
       
-      // If viewing today, include overdue tasks (from previous days) - these show with light red background
-      if (isToday && todoDate < today) {
-        return true;
-      }
-      
-      // Otherwise, show tasks for the selected date (including completed ones)
+      if (isToday && todoDate < today) return true;
       return todo.date === dateStr;
     });
+
+    // Incomplete first, completed at bottom
+    return [...filtered].sort((a, b) => (a.completed ? 1 : 0) - (b.completed ? 1 : 0));
   };
 
   const getTodosForMonth = (date: Date) => {
@@ -134,12 +142,14 @@ export default function Home() {
     return `${date.getDate()}.`;
   };
 
-  const getFolderColor = (folderId: string) => {
+  const getFolderColor = (folderId?: string) => {
+    if (!folderId) return '#D3D3D3';
     return folders.find(f => f.id === folderId)?.color || '#D3D3D3';
   };
 
-  const getFolderName = (folderId: string) => {
-    return folders.find(f => f.id === folderId)?.name || 'UNKNOWN';
+  const getFolderName = (folderId?: string) => {
+    if (!folderId) return '—';
+    return folders.find(f => f.id === folderId)?.name || '—';
   };
 
   const isOverdue = (todo: Todo) => {
@@ -202,7 +212,7 @@ export default function Home() {
   const startEditTodo = (todo: Todo) => {
     setEditingTodo(todo);
     setNewTodoText(todo.text);
-    setNewTodoFolder(todo.folderId);
+    setNewTodoFolder(todo.folderId ?? '');
     // Convert "18 Uhr" to "18:00" for time input
     if (todo.time) {
       const match = todo.time.match(/(\d+)/);
@@ -220,16 +230,24 @@ export default function Home() {
     setSwipeStartX(clientX);
     setSwipeStartY(clientY ?? null);
     setSwipeTodoId(todoId);
+    didMouseDragRef.current = false;
+    mouseDragRef.current = { todoId, startX: clientX, offset: getSwipeOffset(todoId) };
   };
 
   const handleSwipeMove = (todoId: string, clientX: number, clientY?: number) => {
-    if (swipeTodoId !== todoId || swipeStartX === null) return;
-    const diff = clientX - swipeStartX; // negative when swiping left
-    const current = getSwipeOffset(todoId);
+    const ref = mouseDragRef.current;
+    const startX = ref?.todoId === todoId ? ref.startX : swipeStartX;
+    if ((swipeTodoId !== todoId && ref?.todoId !== todoId) || startX === null) return;
+    const current = ref?.todoId === todoId ? ref.offset : getSwipeOffset(todoId);
+    const diff = clientX - startX; // negative when swiping left
     const newOffset = Math.min(0, Math.max(-SWIPE_ACTION_WIDTH, current + diff));
     setTodoSwipeOffsets(prev => ({ ...prev, [todoId]: newOffset }));
     setSwipeStartX(clientX);
     if (clientY !== undefined) setSwipeStartY(clientY);
+    if (mouseDragRef.current?.todoId === todoId) {
+      mouseDragRef.current.startX = clientX;
+      mouseDragRef.current.offset = newOffset;
+    }
   };
 
   const handleSwipeEnd = (todoId: string) => {
@@ -239,7 +257,42 @@ export default function Home() {
     setSwipeStartX(null);
     setSwipeStartY(null);
     setSwipeTodoId(null);
+    mouseDragRef.current = null;
   };
+
+  // Document-level mouse listeners so drag-to-swipe works when cursor leaves the row (e.g. on laptop)
+  useEffect(() => {
+    if (!swipeTodoId) return;
+
+    const onDocMouseMove = (e: MouseEvent) => {
+      const ref = mouseDragRef.current;
+      if (!ref || ref.todoId !== swipeTodoId) return;
+      didMouseDragRef.current = true;
+      const diff = e.clientX - ref.startX;
+      const newOffset = Math.min(0, Math.max(-SWIPE_ACTION_WIDTH, ref.offset + diff));
+      setTodoSwipeOffsets(prev => ({ ...prev, [ref.todoId]: newOffset }));
+      ref.startX = e.clientX;
+      ref.offset = newOffset;
+    };
+
+    const onDocMouseUp = () => {
+      const ref = mouseDragRef.current;
+      if (!ref) return;
+      const snapOpen = ref.offset < -SWIPE_ACTION_WIDTH / 2;
+      setTodoSwipeOffsets(prev => ({ ...prev, [ref.todoId]: snapOpen ? -SWIPE_ACTION_WIDTH : 0 }));
+      setSwipeStartX(null);
+      setSwipeStartY(null);
+      setSwipeTodoId(null);
+      mouseDragRef.current = null;
+    };
+
+    document.addEventListener('mousemove', onDocMouseMove);
+    document.addEventListener('mouseup', onDocMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', onDocMouseMove);
+      document.removeEventListener('mouseup', onDocMouseUp);
+    };
+  }, [swipeTodoId]);
 
   // On mobile: prevent default touch behavior when user is swiping horizontally (so page doesn't scroll)
   const handleTouchMove = (e: React.TouchEvent, todoId: string) => {
@@ -254,39 +307,38 @@ export default function Home() {
   };
 
   const addTodo = () => {
-    if (newTodoText.trim() && newTodoFolder) {
-      const timeDisplay = newTodoTime ? newTodoTime.split(':')[0] + ' Uhr' : undefined;
-      
-      if (editingTodo) {
-        // Update existing todo
-        const updatedTodo: Todo = {
-          ...editingTodo,
-          text: newTodoText.trim(),
-          folderId: newTodoFolder,
-          time: timeDisplay,
-        };
-        setTodos(todos.map(todo => todo.id === editingTodo.id ? updatedTodo : todo));
-        setEditingTodo(null);
-      } else {
-        // Create new todo
-        const dateToUse = currentView === 'chosen-day' ? chosenDayFromCalendar : selectedDay;
-        const dateStr = formatDateString(dateToUse);
-        const newTodo: Todo = {
-          id: Date.now().toString(),
-          text: newTodoText.trim(),
-          folderId: newTodoFolder,
-          time: timeDisplay,
-          date: dateStr,
-          completed: false,
-        };
-        setTodos([...todos, newTodo]);
-      }
-      
-      setNewTodoText('');
-      setNewTodoFolder('');
-      setNewTodoTime('');
-      setShowAddTodoModal(false);
+    if (!newTodoText.trim()) return;
+
+    const timeDisplay = newTodoTime ? newTodoTime.split(':')[0] + ' Uhr' : undefined;
+    const folderId = newTodoFolder || undefined;
+
+    if (editingTodo) {
+      const updatedTodo: Todo = {
+        ...editingTodo,
+        text: newTodoText.trim(),
+        folderId,
+        time: timeDisplay,
+      };
+      setTodos(todos.map(todo => todo.id === editingTodo.id ? updatedTodo : todo));
+      setEditingTodo(null);
+    } else {
+      const dateToUse = currentView === 'chosen-day' ? chosenDayFromCalendar : selectedDay;
+      const dateStr = formatDateString(dateToUse);
+      const newTodo: Todo = {
+        id: Date.now().toString(),
+        text: newTodoText.trim(),
+        folderId,
+        time: timeDisplay,
+        date: dateStr,
+        completed: false,
+      };
+      setTodos([...todos, newTodo]);
     }
+
+    setNewTodoText('');
+    setNewTodoFolder('');
+    setNewTodoTime('');
+    setShowAddTodoModal(false);
   };
 
 
@@ -511,22 +563,20 @@ export default function Home() {
             <div id="action-grid" className="grid grid-cols-3 gap-2">
               <button
                 id="folder-filter-btn"
-                onClick={() => setShowFolderModal(true)}
+                onClick={() => {
+                  setFilterModalCheckedIds(new Set(selectedFolderFilters));
+                  setShowFilterModal(true);
+                }}
                 className="bg-white rounded-lg p-4 flex items-center justify-center hover:bg-gray-50 transition-colors"
               >
-                <svg
-                  id="folder-icon"
-                  width="24"
-                  height="24"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="#222222"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                </svg>
+                <img
+                  id="filter-icon"
+                  src="/filter.png"
+                  alt="Filter"
+                  width={24}
+                  height={24}
+                  className="object-contain"
+                />
               </button>
               
               <div id="date-display" className="bg-white rounded-lg p-4 flex flex-col items-center justify-center">
@@ -548,75 +598,102 @@ export default function Home() {
             </div>
 
             {/* Filter Capsule */}
-            {selectedFolderFilter && (
-              <div id="filter-capsule" className="flex items-center gap-2">
-                <div
-                  id="filter-capsule-content"
-                  className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white"
-                  style={{ backgroundColor: getFolderColor(selectedFolderFilter) + '20' }}
-                >
+            {selectedFolderFilters.length > 0 && (
+              <div id="filter-capsule" className="flex flex-wrap items-center gap-2">
+                {selectedFolderFilters.map(fid => (
                   <div
-                    id="filter-capsule-color"
-                    className="w-3 h-3 rounded-full"
-                    style={{ backgroundColor: getFolderColor(selectedFolderFilter) }}
-                  />
-                  <span id="filter-capsule-name" className="text-sm text-[#222222]">
-                    {getFolderName(selectedFolderFilter)}
-                  </span>
-                  <button
-                    id="filter-capsule-close"
-                    onClick={() => setSelectedFolderFilter(null)}
-                    className="text-[#222222] hover:text-red-500"
+                    key={fid}
+                    id={`filter-capsule-${fid}`}
+                    className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white"
+                    style={{ backgroundColor: getFolderColor(fid) + '20' }}
                   >
-                    ×
+                    <div
+                      className="w-3 h-3 rounded-full"
+                      style={{ backgroundColor: getFolderColor(fid) }}
+                    />
+                    <span className="text-sm text-[#222222]">{getFolderName(fid)}</span>
+                    <button
+                      onClick={() => setSelectedFolderFilters(prev => prev.filter(id => id !== fid))}
+                      className="text-[#222222] hover:text-red-500"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+                <button
+                  id="filter-capsule-close-all"
+                  onClick={() => setSelectedFolderFilters([])}
+                  className="text-sm text-[#7D7D7D] hover:text-[#222222]"
+                >
+                  Alle entfernen
+                </button>
+              </div>
+            )}
+
+            {/* Filter Modal (checkboxes + Filter anwenden) */}
+            {showFilterModal && (
+              <div id="filter-modal-overlay" className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setShowFilterModal(false)}>
+                <div id="filter-modal" className="bg-white rounded-lg p-6 max-w-sm w-full mx-4" onClick={(e) => e.stopPropagation()}>
+                  <h2 id="filter-modal-title" className="text-xl font-bold text-[#222222] mb-4">Filter</h2>
+                  <div id="filter-modal-list" className="space-y-2 mb-4 max-h-60 overflow-y-auto">
+                    {folders.map(folder => (
+                      <label
+                        key={folder.id}
+                        id={`filter-checkbox-${folder.id}`}
+                        className="flex items-center gap-3 w-full cursor-pointer px-3 py-2 rounded hover:bg-gray-50"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={filterModalCheckedIds.has(folder.id)}
+                          onChange={() => {
+                            setFilterModalCheckedIds(prev => {
+                              const next = new Set(prev);
+                              if (next.has(folder.id)) next.delete(folder.id);
+                              else next.add(folder.id);
+                              return next;
+                            });
+                          }}
+                          className="w-4 h-4 rounded border-gray-300"
+                        />
+                        <div
+                          className="w-4 h-4 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: folder.color }}
+                        />
+                        <span className="text-[#222222]">{folder.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <button
+                    id="filter-apply-btn"
+                    onClick={() => {
+                      setSelectedFolderFilters(Array.from(filterModalCheckedIds));
+                      setShowFilterModal(false);
+                    }}
+                    className="w-full px-4 py-3 bg-[#222222] text-white rounded-lg hover:bg-[#333333] transition-colors font-medium"
+                  >
+                    Filter anwenden
                   </button>
                 </div>
               </div>
             )}
 
-            {/* Folder Modal */}
+            {/* Folder Modal (add/manage folders) */}
             {showFolderModal && (
               <div id="folder-modal-overlay" className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setShowFolderModal(false)}>
                 <div id="folder-modal" className="bg-white rounded-lg p-6 max-w-sm w-full mx-4" onClick={(e) => e.stopPropagation()}>
                   <h2 id="folder-modal-title" className="text-xl font-bold text-[#222222] mb-4">Ordner</h2>
-                  
-                  <div id="folder-list" className="space-y-2 mb-4 max-h-60 overflow-y-auto">
-                    {folders.map(folder => (
-                      <button
-                        key={folder.id}
-                        id={`folder-item-${folder.id}`}
-                        onClick={() => {
-                          setSelectedFolderFilter(folder.id);
-                          setShowFolderModal(false);
-                        }}
-                        className={`w-full text-left px-3 py-2 rounded flex items-center gap-2 ${
-                          selectedFolderFilter === folder.id ? 'bg-gray-100' : 'hover:bg-gray-50'
-                        }`}
-                      >
-                        <div
-                          id={`folder-color-${folder.id}`}
-                          className="w-4 h-4 rounded-full"
-                          style={{ backgroundColor: folder.color }}
-                        />
-                        <span id={`folder-name-${folder.id}`} className="text-[#222222]">{folder.name}</span>
-                      </button>
-                    ))}
-                  </div>
-                  
-                    <div id="add-folder-section" className="border-t pt-4">
-                      <h3 id="add-folder-title" className="text-sm font-semibold text-[#222222] mb-2">Neuer Ordner</h3>
-                      <input
-                        id="new-folder-name-input"
-                        type="text"
-                        value={newFolderName}
-                        onChange={(e) => setNewFolderName(e.target.value)}
-                        placeholder="Ordnername"
-                        className="w-full px-3 py-2 border border-gray-300 rounded mb-2 text-[#222222]"
-                      />
+                  <div id="add-folder-section" className="mb-4">
+                    <h3 id="add-folder-title" className="text-sm font-semibold text-[#222222] mb-2">Neuer Ordner</h3>
+                    <input
+                      id="new-folder-name-input"
+                      type="text"
+                      value={newFolderName}
+                      onChange={(e) => setNewFolderName(e.target.value)}
+                      placeholder="Ordnername"
+                      className="w-full px-3 py-2 border border-gray-300 rounded mb-2 text-[#222222]"
+                    />
                     <div id="color-picker-section" className="mb-2">
-                      <label id="color-picker-label" className="block text-sm font-medium text-[#222222] mb-2">
-                        Farbe
-                      </label>
+                      <label id="color-picker-label" className="block text-sm font-medium text-[#222222] mb-2">Farbe</label>
                       <div id="color-picker-wrapper" className="flex items-center gap-3">
                         <input
                           id="custom-color-picker"
@@ -627,26 +704,81 @@ export default function Home() {
                         />
                       </div>
                     </div>
-                      <button
-                        id="add-folder-btn"
-                        onClick={addFolder}
-                        className="w-full px-4 py-2 bg-[#222222] text-white rounded hover:bg-[#333333] transition-colors"
-                      >
-                        Hinzufügen
-                      </button>
-                    </div>
+                    <button
+                      id="add-folder-btn"
+                      onClick={addFolder}
+                      className="w-full px-4 py-2 bg-[#222222] text-white rounded hover:bg-[#333333] transition-colors"
+                    >
+                      Hinzufügen
+                    </button>
+                  </div>
+                  <div id="folder-list" className="space-y-2 max-h-40 overflow-y-auto">
+                    {folders.map(folder => (
+                      <div key={folder.id} id={`folder-item-${folder.id}`} className="flex items-center gap-2 px-3 py-2 rounded">
+                        <div className="w-4 h-4 rounded-full" style={{ backgroundColor: folder.color }} />
+                        <span className="text-[#222222]">{folder.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Add Folder Modal (from add-todo modal) */}
+            {showAddFolderFromTodoModal && (
+              <div id="add-folder-from-todo-overlay" className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60]" onClick={() => setShowAddFolderFromTodoModal(false)}>
+                <div id="add-folder-from-todo-modal" className="bg-white rounded-lg p-6 max-w-sm w-full mx-4" onClick={(e) => e.stopPropagation()}>
+                  <h2 className="text-xl font-bold text-[#222222] mb-4">Ordner hinzufügen</h2>
+                  <input
+                    type="text"
+                    value={newFolderName}
+                    onChange={(e) => setNewFolderName(e.target.value)}
+                    placeholder="Ordnername"
+                    className="w-full px-3 py-2 border border-gray-300 rounded mb-2 text-[#222222]"
+                  />
+                  <div className="mb-2">
+                    <label className="block text-sm font-medium text-[#222222] mb-2">Farbe</label>
+                    <input
+                      type="color"
+                      value={newFolderColor}
+                      onChange={(e) => setNewFolderColor(e.target.value)}
+                      className="w-16 h-16 rounded-lg border-2 border-gray-300 cursor-pointer"
+                    />
+                  </div>
+                  <button
+                    onClick={() => {
+                      addFolder();
+                      setShowAddFolderFromTodoModal(false);
+                    }}
+                    className="w-full px-4 py-2 bg-[#222222] text-white rounded hover:bg-[#333333] transition-colors"
+                  >
+                    Hinzufügen
+                  </button>
                 </div>
               </div>
             )}
 
             {/* Add Todo Modal */}
             {showAddTodoModal && (
-              <div id="add-todo-modal-overlay" className="fixed inset-0 bg-black bg-opacity-50 flex items-end z-50" onClick={() => setShowAddTodoModal(false)}>
-                <div id="add-todo-modal" className="bg-white rounded-t-2xl p-6 w-full max-w-md mx-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
-                  <div id="modal-drag-handle" className="w-12 h-1 bg-gray-300 rounded-full mx-auto mb-4"></div>
-                  <h2 id="add-todo-modal-title" className="text-xl font-bold text-[#222222] mb-6">
-                    {editingTodo ? 'Aufgabe bearbeiten' : 'Neue Aufgabe'}
-                  </h2>
+              <div id="add-todo-modal-overlay" className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setShowAddTodoModal(false)}>
+                <div id="add-todo-modal" className="bg-white rounded-lg p-6 w-full max-w-md mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex items-center justify-between mb-6">
+                    <h2 id="add-todo-modal-title" className="text-xl font-bold text-[#222222]">
+                      {editingTodo ? 'Aufgabe bearbeiten' : 'Neue Aufgabe'}
+                    </h2>
+                    <button
+                      id="add-folder-from-todo-btn"
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setShowAddFolderFromTodoModal(true); }}
+                      className="p-2 rounded-lg hover:bg-gray-100 flex items-center gap-2 text-[#222222]"
+                      title="Ordner hinzufügen"
+                    >
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                      </svg>
+                      <span className="text-sm font-medium">Ordner hinzufügen</span>
+                    </button>
+                  </div>
                   
                   <div id="add-todo-form" className="space-y-5">
                     <div id="todo-text-field">
@@ -663,18 +795,25 @@ export default function Home() {
                     
                     <div id="todo-folder-field">
                       <label id="todo-folder-label" className="block text-sm font-medium text-[#7D7D7D] mb-2">
-                        Ordner
+                        Ordner (optional)
                       </label>
                       <div id="folder-options" className="grid grid-cols-2 gap-2">
+                        <button
+                          id="folder-option-none"
+                          onClick={() => setNewTodoFolder('')}
+                          className={`px-4 py-3 rounded-xl border-2 transition-all flex items-center gap-2 ${
+                            !newTodoFolder ? 'border-[#222222] bg-gray-50' : 'border-gray-200 hover:border-gray-300'
+                          }`}
+                        >
+                          <span id="folder-option-name-none" className="text-sm font-medium text-[#222222]">Kein Ordner</span>
+                        </button>
                         {folders.map(folder => (
                           <button
                             key={folder.id}
                             id={`folder-option-${folder.id}`}
                             onClick={() => setNewTodoFolder(folder.id)}
                             className={`px-4 py-3 rounded-xl border-2 transition-all flex items-center gap-2 ${
-                              newTodoFolder === folder.id
-                                ? 'border-[#222222] bg-gray-50'
-                                : 'border-gray-200 hover:border-gray-300'
+                              newTodoFolder === folder.id ? 'border-[#222222] bg-gray-50' : 'border-gray-200 hover:border-gray-300'
                             }`}
                           >
                             <div
@@ -720,7 +859,7 @@ export default function Home() {
                       <button
                         id="save-todo-btn"
                         onClick={addTodo}
-                        disabled={!newTodoText.trim() || !newTodoFolder}
+                        disabled={!newTodoText.trim()}
                         className="flex-1 px-4 py-3 bg-[#222222] text-white rounded-xl hover:bg-[#333333] transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {editingTodo ? 'Speichern' : 'Hinzufügen'}
@@ -781,14 +920,22 @@ export default function Home() {
                           touchAction: 'pan-y',
                         }}
                         onClick={() => {
+                          if (didMouseDragRef.current) {
+                            didMouseDragRef.current = false;
+                            return;
+                          }
                           if (!isSwipedOpen) toggleTodoComplete(todo.id);
                         }}
                         onTouchStart={(e) => handleSwipeStart(todo.id, e.touches[0].clientX, e.touches[0].clientY)}
                         onTouchMove={(e) => handleTouchMove(e, todo.id)}
                         onTouchEnd={() => handleSwipeEnd(todo.id)}
-                        onMouseDown={(e) => handleSwipeStart(todo.id, e.clientX)}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          handleSwipeStart(todo.id, e.clientX);
+                        }}
                         onMouseMove={(e) => {
                           if (swipeTodoId === todo.id && e.buttons === 1) {
+                            didMouseDragRef.current = true;
                             handleSwipeMove(todo.id, e.clientX);
                           }
                         }}
