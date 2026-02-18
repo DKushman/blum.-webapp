@@ -40,6 +40,9 @@ export default function Home() {
   const [newTodoText, setNewTodoText] = useState('');
   const [newTodoFolder, setNewTodoFolder] = useState('');
   const [newTodoTime, setNewTodoTime] = useState('');
+  const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
+  const [showTodoActions, setShowTodoActions] = useState<string | null>(null);
+  const [longPressTimer, setLongPressTimer] = useState<NodeJS.Timeout | null>(null);
 
   // Folders state (now mutable) - start with empty array
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -154,25 +157,71 @@ export default function Home() {
   };
 
   const toggleTodoComplete = (todoId: string) => {
+    // Don't toggle if showing actions menu
+    if (showTodoActions === todoId) return;
     setTodos(todos.map(todo => 
       todo.id === todoId ? { ...todo, completed: !todo.completed } : todo
     ));
   };
 
+  const deleteTodo = (todoId: string) => {
+    setTodos(todos.filter(todo => todo.id !== todoId));
+    setShowTodoActions(null);
+  };
+
+  const startEditTodo = (todo: Todo) => {
+    setEditingTodo(todo);
+    setNewTodoText(todo.text);
+    setNewTodoFolder(todo.folderId);
+    setNewTodoTime(todo.time ? todo.time.replace(' Uhr', '') : '');
+    setShowAddTodoModal(true);
+    setShowTodoActions(null);
+  };
+
+
+  const handleTodoLongPress = (todoId: string) => {
+    const timer = setTimeout(() => {
+      setShowTodoActions(todoId);
+    }, 500); // 500ms long press
+    setLongPressTimer(timer);
+  };
+
+  const handleTodoPressEnd = () => {
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      setLongPressTimer(null);
+    }
+  };
+
   const addTodo = () => {
     if (newTodoText.trim() && newTodoFolder) {
       const timeDisplay = newTodoTime ? newTodoTime.split(':')[0] + ' Uhr' : undefined;
-      const dateToUse = currentView === 'chosen-day' ? chosenDayFromCalendar : selectedDay;
-      const dateStr = formatDateString(dateToUse);
-      const newTodo: Todo = {
-        id: Date.now().toString(),
-        text: newTodoText.trim(),
-        folderId: newTodoFolder,
-        time: timeDisplay,
-        date: dateStr, // Use formatted date string
-        completed: false,
-      };
-      setTodos([...todos, newTodo]);
+      
+      if (editingTodo) {
+        // Update existing todo
+        const updatedTodo: Todo = {
+          ...editingTodo,
+          text: newTodoText.trim(),
+          folderId: newTodoFolder,
+          time: timeDisplay,
+        };
+        setTodos(todos.map(todo => todo.id === editingTodo.id ? updatedTodo : todo));
+        setEditingTodo(null);
+      } else {
+        // Create new todo
+        const dateToUse = currentView === 'chosen-day' ? chosenDayFromCalendar : selectedDay;
+        const dateStr = formatDateString(dateToUse);
+        const newTodo: Todo = {
+          id: Date.now().toString(),
+          text: newTodoText.trim(),
+          folderId: newTodoFolder,
+          time: timeDisplay,
+          date: dateStr,
+          completed: false,
+        };
+        setTodos([...todos, newTodo]);
+      }
+      
       setNewTodoText('');
       setNewTodoFolder('');
       setNewTodoTime('');
@@ -251,25 +300,33 @@ export default function Home() {
               {/* Month Picker Dropdown */}
               {showMonthPicker && (
                 <div id="month-picker-dropdown" className="absolute top-full left-1/2 transform -translate-x-1/2 mt-2 bg-white rounded-lg shadow-lg p-4 z-50 grid grid-cols-3 gap-2 min-w-[200px]">
-                  {months.map((month, index) => (
-                    <button
-                      key={month}
-                      id={`month-option-${index}`}
-                      onClick={() => {
-                        const newDate = new Date(currentMonth);
-                        newDate.setMonth(index);
-                        setCurrentMonth(newDate);
-                        setShowMonthPicker(false);
-                      }}
-                      className={`px-3 py-2 rounded text-sm ${
-                        currentMonth.getMonth() === index
-                          ? 'bg-[#222222] text-white'
-                          : 'bg-gray-100 text-[#222222] hover:bg-gray-200'
-                      }`}
-                    >
-                      {month.slice(0, 3)}
-                    </button>
-                  ))}
+                  {months.map((month, index) => {
+                    const today = new Date();
+                    const isCurrentMonth = today.getMonth() === index && today.getFullYear() === currentMonth.getFullYear();
+                    const isSelected = currentMonth.getMonth() === index;
+                    
+                    return (
+                      <button
+                        key={month}
+                        id={`month-option-${index}`}
+                        onClick={() => {
+                          const newDate = new Date(currentMonth);
+                          newDate.setMonth(index);
+                          setCurrentMonth(newDate);
+                          setShowMonthPicker(false);
+                        }}
+                        className={`px-3 py-2 rounded text-sm ${
+                          isSelected
+                            ? 'bg-[#222222] text-white'
+                            : isCurrentMonth
+                            ? 'bg-gray-100 text-[#222222] hover:bg-gray-200 border-2 border-[#222222]'
+                            : 'bg-gray-100 text-[#222222] hover:bg-gray-200'
+                        }`}
+                      >
+                        {month.slice(0, 3)}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -515,7 +572,9 @@ export default function Home() {
               <div id="add-todo-modal-overlay" className="fixed inset-0 bg-black bg-opacity-50 flex items-end z-50" onClick={() => setShowAddTodoModal(false)}>
                 <div id="add-todo-modal" className="bg-white rounded-t-2xl p-6 w-full max-w-md mx-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
                   <div id="modal-drag-handle" className="w-12 h-1 bg-gray-300 rounded-full mx-auto mb-4"></div>
-                  <h2 id="add-todo-modal-title" className="text-xl font-bold text-[#222222] mb-6">Neue Aufgabe</h2>
+                  <h2 id="add-todo-modal-title" className="text-xl font-bold text-[#222222] mb-6">
+                    {editingTodo ? 'Aufgabe bearbeiten' : 'Neue Aufgabe'}
+                  </h2>
                   
                   <div id="add-todo-form" className="space-y-5">
                     <div id="todo-text-field">
@@ -580,6 +639,7 @@ export default function Home() {
                           setNewTodoText('');
                           setNewTodoFolder('');
                           setNewTodoTime('');
+                          setEditingTodo(null);
                         }}
                         className="flex-1 px-4 py-3 border-2 border-gray-200 rounded-xl text-[#222222] hover:bg-gray-50 transition-colors font-medium"
                       >
@@ -591,7 +651,7 @@ export default function Home() {
                         disabled={!newTodoText.trim() || !newTodoFolder}
                         className="flex-1 px-4 py-3 bg-[#222222] text-white rounded-xl hover:bg-[#333333] transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        Hinzufügen
+                        {editingTodo ? 'Speichern' : 'Hinzufügen'}
                       </button>
                     </div>
                   </div>
@@ -610,14 +670,42 @@ export default function Home() {
                     <div
                       key={`${displayDay.toISOString()}-${todo.id}`}
                       id={`todo-item-${todo.id}`}
-                      className={`rounded-lg p-4 flex items-center gap-3 cursor-pointer hover:bg-gray-50 transition-colors ${
+                      className={`rounded-lg p-4 flex items-center gap-3 cursor-pointer hover:bg-gray-50 transition-colors relative ${
                         isOverdueTask ? 'bg-red-50' : 'bg-white'
                       }`}
                       onClick={() => toggleTodoComplete(todo.id)}
+                      onTouchStart={() => handleTodoLongPress(todo.id)}
+                      onTouchEnd={handleTodoPressEnd}
+                      onMouseDown={() => handleTodoLongPress(todo.id)}
+                      onMouseUp={handleTodoPressEnd}
+                      onMouseLeave={handleTodoPressEnd}
                       style={{
                         animation: `slideUpFromBottom 0.4s cubic-bezier(0.4, 0, 0.2, 1) ${index * 0.05}s both`,
                       }}
                     >
+                      {/* Todo Actions Menu */}
+                      {showTodoActions === todo.id && (
+                        <div 
+                          id={`todo-actions-${todo.id}`}
+                          className="absolute right-0 top-full mt-2 bg-white rounded-lg shadow-lg border border-gray-200 z-50 min-w-[120px]"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            id={`edit-todo-${todo.id}`}
+                            onClick={() => startEditTodo(todo)}
+                            className="w-full px-4 py-2 text-left text-sm text-[#222222] hover:bg-gray-50 rounded-t-lg"
+                          >
+                            Bearbeiten
+                          </button>
+                          <button
+                            id={`delete-todo-${todo.id}`}
+                            onClick={() => deleteTodo(todo.id)}
+                            className="w-full px-4 py-2 text-left text-sm text-red-500 hover:bg-gray-50 rounded-b-lg"
+                          >
+                            Löschen
+                          </button>
+                        </div>
+                      )}
                     <div
                       id={`todo-circle-${todo.id}`}
                       className={`w-5 h-5 rounded-full border-2 flex-shrink-0 transition-all ${
