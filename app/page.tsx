@@ -1311,24 +1311,21 @@ export default function Home() {
                 const dayDate = new Date(day);
                 dayDate.setHours(0, 0, 0, 0);
                 
-                // Get todos for this specific day (only incomplete ones for the grid)
+                // Get todos for this specific day (include completed so they show with a check)
                 const dayDateStr = formatDateString(day);
-                const dayTodos = todos.filter(todo => {
-                  return todo.date === dayDateStr && !todo.completed;
-                });
+                const dayTodos = todos.filter(todo => todo.date === dayDateStr);
                 
                 // Get overdue todos that should appear on this day (if viewing today)
                 const overdueTodosForDay: Todo[] = [];
                 if (dayDate.getTime() === today.getTime()) {
-                  // If this is today, include overdue todos from previous days (only incomplete)
                   overdueTodosForDay.push(...todos.filter(todo => {
                     const todoDate = new Date(todo.date + 'T00:00:00');
                     todoDate.setHours(0, 0, 0, 0);
-                    return todoDate < today && !todo.completed;
+                    return todoDate < today;
                   }));
                 }
                 
-                // Combine day todos and overdue todos (only incomplete for grid display)
+                // Combine day todos and overdue todos (all shown; completed with check)
                 const allTodosForDay = [...dayTodos, ...overdueTodosForDay];
                 
                 const overdueTodos = allTodosForDay.filter(todo => {
@@ -1361,9 +1358,21 @@ export default function Home() {
                     <div id={`day-month-${index}`} className="text-sm text-[#7D7D7D] mb-2">
                       {months[day.getMonth()]}
                     </div>
-                    <div id={`day-todos-${index}`} className="flex flex-wrap gap-1">
+                    <div id={`day-todos-${index}`} className="flex flex-wrap gap-1 items-center">
                       {allTodosForDay.slice(0, 5).map((todo, todoIndex) => {
                         const isOverdue = overdueTodos.some(ot => ot.id === todo.id);
+                        if (todo.completed) {
+                          return (
+                            <span
+                              key={todo.id}
+                              id={`day-todo-indicator-${index}-${todoIndex}`}
+                              className="inline-flex items-center justify-center w-3 h-3 text-[10px] text-green-600"
+                              aria-label="Erledigt"
+                            >
+                              ✓
+                            </span>
+                          );
+                        }
                         return (
                           <div
                             key={todo.id}
@@ -1380,7 +1389,7 @@ export default function Home() {
                       })}
                       {allTodosForDay.length > 5 && (
                         <span id={`day-more-indicator-${index}`} className="text-xs text-[#7D7D7D]">
-                          ...
+                          (+{allTodosForDay.length - 5})
                         </span>
                       )}
                     </div>
