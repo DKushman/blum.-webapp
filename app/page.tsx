@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 type Folder = {
   id: string;
@@ -43,15 +43,42 @@ export default function Home() {
   const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
   const [todoSwipeOffsets, setTodoSwipeOffsets] = useState<Record<string, number>>({});
   const [swipeStartX, setSwipeStartX] = useState<number | null>(null);
+  const [swipeStartY, setSwipeStartY] = useState<number | null>(null);
   const [swipeTodoId, setSwipeTodoId] = useState<string | null>(null);
 
   const SWIPE_ACTION_WIDTH = 140;
 
-  // Folders state (now mutable) - start with empty array
-  const [folders, setFolders] = useState<Folder[]>([]);
+  // Load folders from localStorage on mount
+  const [folders, setFolders] = useState<Folder[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('blume-folders');
+      return saved ? JSON.parse(saved) : [];
+    }
+    return [];
+  });
 
-  // Sample todos - start with empty array
-  const [todos, setTodos] = useState<Todo[]>([]);
+  // Load todos from localStorage on mount
+  const [todos, setTodos] = useState<Todo[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('blume-todos');
+      return saved ? JSON.parse(saved) : [];
+    }
+    return [];
+  });
+
+  // Save folders to localStorage whenever they change
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('blume-folders', JSON.stringify(folders));
+    }
+  }, [folders]);
+
+  // Save todos to localStorage whenever they change
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('blume-todos', JSON.stringify(todos));
+    }
+  }, [todos]);
 
   const getCurrentWeekdayIndex = () => {
     const dayToUse = currentView === 'chosen-day' ? chosenDayFromCalendar : selectedDay;
@@ -189,18 +216,20 @@ export default function Home() {
 
   const getSwipeOffset = (todoId: string) => todoSwipeOffsets[todoId] ?? 0;
 
-  const handleSwipeStart = (todoId: string, clientX: number) => {
+  const handleSwipeStart = (todoId: string, clientX: number, clientY?: number) => {
     setSwipeStartX(clientX);
+    setSwipeStartY(clientY ?? null);
     setSwipeTodoId(todoId);
   };
 
-  const handleSwipeMove = (todoId: string, clientX: number) => {
+  const handleSwipeMove = (todoId: string, clientX: number, clientY?: number) => {
     if (swipeTodoId !== todoId || swipeStartX === null) return;
     const diff = clientX - swipeStartX; // negative when swiping left
     const current = getSwipeOffset(todoId);
     const newOffset = Math.min(0, Math.max(-SWIPE_ACTION_WIDTH, current + diff));
     setTodoSwipeOffsets(prev => ({ ...prev, [todoId]: newOffset }));
     setSwipeStartX(clientX);
+    if (clientY !== undefined) setSwipeStartY(clientY);
   };
 
   const handleSwipeEnd = (todoId: string) => {
@@ -208,7 +237,20 @@ export default function Home() {
     const snapOpen = offset < -SWIPE_ACTION_WIDTH / 2;
     setTodoSwipeOffsets(prev => ({ ...prev, [todoId]: snapOpen ? -SWIPE_ACTION_WIDTH : 0 }));
     setSwipeStartX(null);
+    setSwipeStartY(null);
     setSwipeTodoId(null);
+  };
+
+  // On mobile: prevent default touch behavior when user is swiping horizontally (so page doesn't scroll)
+  const handleTouchMove = (e: React.TouchEvent, todoId: string) => {
+    if (swipeTodoId !== todoId || swipeStartX === null || swipeStartY === null) return;
+    const touch = e.touches[0];
+    const deltaX = Math.abs(touch.clientX - swipeStartX);
+    const deltaY = Math.abs(touch.clientY - swipeStartY);
+    if (deltaX > deltaY && deltaX > 5) {
+      e.preventDefault();
+    }
+    handleSwipeMove(todoId, touch.clientX, touch.clientY);
   };
 
   const addTodo = () => {
@@ -741,8 +783,8 @@ export default function Home() {
                         onClick={() => {
                           if (!isSwipedOpen) toggleTodoComplete(todo.id);
                         }}
-                        onTouchStart={(e) => handleSwipeStart(todo.id, e.touches[0].clientX)}
-                        onTouchMove={(e) => handleSwipeMove(todo.id, e.touches[0].clientX)}
+                        onTouchStart={(e) => handleSwipeStart(todo.id, e.touches[0].clientX, e.touches[0].clientY)}
+                        onTouchMove={(e) => handleTouchMove(e, todo.id)}
                         onTouchEnd={() => handleSwipeEnd(todo.id)}
                         onMouseDown={(e) => handleSwipeStart(todo.id, e.clientX)}
                         onMouseMove={(e) => {
