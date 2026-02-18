@@ -8,13 +8,17 @@ type Folder = {
   color: string;
 };
 
+type Repeating = 'daily' | 'weekly' | 'monthly' | 'yearly';
+
 type Todo = {
   id: string;
   text: string;
-  folderId?: string; // optional - can be without folder
+  folderId?: string;
   time?: string;
   date: string; // YYYY-MM-DD format
   completed: boolean;
+  seriesId?: string; // links repeating instances
+  repeating?: Repeating;
 };
 
 type View = 'dashboard' | 'chosen-day' | 'monthly';
@@ -44,7 +48,10 @@ export default function Home() {
   const [newTodoText, setNewTodoText] = useState('');
   const [newTodoFolder, setNewTodoFolder] = useState('');
   const [newTodoTime, setNewTodoTime] = useState('');
+  const [newTodoRepeating, setNewTodoRepeating] = useState<'' | Repeating>('');
   const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
+  const [showDeleteTodoModal, setShowDeleteTodoModal] = useState(false);
+  const [todoToDelete, setTodoToDelete] = useState<Todo | null>(null);
   const [todoSwipeOffsets, setTodoSwipeOffsets] = useState<Record<string, number>>({});
   const [swipeStartX, setSwipeStartX] = useState<number | null>(null);
   const [swipeStartY, setSwipeStartY] = useState<number | null>(null);
@@ -197,6 +204,12 @@ export default function Home() {
     }
   };
 
+  const deleteFolder = (folderId: string) => {
+    setFolders(folders.filter(f => f.id !== folderId));
+    setTodos(todos.map(t => t.folderId === folderId ? { ...t, folderId: undefined } : t));
+    setSelectedFolderFilters(prev => prev.filter(id => id !== folderId));
+  };
+
   const toggleTodoComplete = (todoId: string) => {
     // Don't toggle if swipe actions are open
     if (getSwipeOffset(todoId) < 0) return;
@@ -208,6 +221,29 @@ export default function Home() {
   const deleteTodo = (todoId: string) => {
     setTodos(todos.filter(todo => todo.id !== todoId));
     setTodoSwipeOffsets(prev => ({ ...prev, [todoId]: 0 }));
+    setShowDeleteTodoModal(false);
+    setTodoToDelete(null);
+  };
+
+  const deleteTodoSeries = (seriesId: string) => {
+    setTodos(todos.filter(todo => todo.seriesId !== seriesId));
+    setTodoSwipeOffsets(prev => {
+      const next = { ...prev };
+      todos.filter(t => t.seriesId === seriesId).forEach(t => { next[t.id] = 0; });
+      return next;
+    });
+    setShowDeleteTodoModal(false);
+    setTodoToDelete(null);
+  };
+
+  const requestDeleteTodo = (todo: Todo) => {
+    const inSeries = todo.seriesId && todos.filter(t => t.seriesId === todo.seriesId).length > 1;
+    if (inSeries) {
+      setTodoToDelete(todo);
+      setShowDeleteTodoModal(true);
+    } else {
+      deleteTodo(todo.id);
+    }
   };
 
   const startEditTodo = (todo: Todo) => {
@@ -308,6 +344,34 @@ export default function Home() {
     handleSwipeMove(todoId, touch.clientX, touch.clientY);
   };
 
+  const getDatesForRepeating = (startDate: Date, repeating: Repeating): Date[] => {
+    const dates: Date[] = [];
+    const d = new Date(startDate);
+    d.setHours(0, 0, 0, 0);
+    if (repeating === 'daily') {
+      for (let i = 0; i < 365; i++) {
+        dates.push(new Date(d));
+        d.setDate(d.getDate() + 1);
+      }
+    } else if (repeating === 'weekly') {
+      for (let i = 0; i < 52; i++) {
+        dates.push(new Date(d));
+        d.setDate(d.getDate() + 7);
+      }
+    } else if (repeating === 'monthly') {
+      for (let i = 0; i < 12; i++) {
+        dates.push(new Date(d));
+        d.setMonth(d.getMonth() + 1);
+      }
+    } else if (repeating === 'yearly') {
+      for (let i = 0; i < 5; i++) {
+        dates.push(new Date(d));
+        d.setFullYear(d.getFullYear() + 1);
+      }
+    }
+    return dates;
+  };
+
   const addTodo = () => {
     if (!newTodoText.trim()) return;
 
@@ -325,21 +389,39 @@ export default function Home() {
       setEditingTodo(null);
     } else {
       const dateToUse = currentView === 'chosen-day' ? chosenDayFromCalendar : selectedDay;
-      const dateStr = formatDateString(dateToUse);
-      const newTodo: Todo = {
-        id: Date.now().toString(),
-        text: newTodoText.trim(),
-        folderId,
-        time: timeDisplay,
-        date: dateStr,
-        completed: false,
-      };
-      setTodos([...todos, newTodo]);
+      const repeating = newTodoRepeating || undefined;
+      const seriesId = repeating ? `series-${Date.now()}` : undefined;
+
+      if (repeating) {
+        const dates = getDatesForRepeating(dateToUse, repeating);
+        const newTodos: Todo[] = dates.map((d, i) => ({
+          id: `${seriesId}-${i}`,
+          text: newTodoText.trim(),
+          folderId,
+          time: timeDisplay,
+          date: formatDateString(d),
+          completed: false,
+          seriesId,
+          repeating,
+        }));
+        setTodos([...todos, ...newTodos]);
+      } else {
+        const newTodo: Todo = {
+          id: Date.now().toString(),
+          text: newTodoText.trim(),
+          folderId,
+          time: timeDisplay,
+          date: formatDateString(dateToUse),
+          completed: false,
+        };
+        setTodos([...todos, newTodo]);
+      }
     }
 
     setNewTodoText('');
     setNewTodoFolder('');
     setNewTodoTime('');
+    setNewTodoRepeating('');
     setAddTodoStep(1);
     setShowAddTodoModal(false);
   };
@@ -598,6 +680,7 @@ export default function Home() {
                   setNewTodoText('');
                   setNewTodoFolder('');
                   setNewTodoTime('');
+                  setNewTodoRepeating('');
                   setEditingTodo(null);
                   setShowAddTodoModal(true);
                 }}
@@ -647,30 +730,45 @@ export default function Home() {
                   <h2 id="filter-modal-title" className="text-xl font-bold text-[#222222] mb-4">Filter</h2>
                   <div id="filter-modal-list" className="space-y-2 mb-4 max-h-60 overflow-y-auto">
                     {folders.map(folder => (
-                      <label
+                      <div
                         key={folder.id}
-                        id={`filter-checkbox-${folder.id}`}
-                        className="flex items-center gap-3 w-full cursor-pointer px-3 py-2 rounded hover:bg-gray-50"
+                        id={`filter-row-${folder.id}`}
+                        className="flex items-center gap-3 w-full px-3 py-2 rounded hover:bg-gray-50"
                       >
-                        <input
-                          type="checkbox"
-                          checked={filterModalCheckedIds.has(folder.id)}
-                          onChange={() => {
-                            setFilterModalCheckedIds(prev => {
-                              const next = new Set(prev);
-                              if (next.has(folder.id)) next.delete(folder.id);
-                              else next.add(folder.id);
-                              return next;
-                            });
-                          }}
-                          className="w-4 h-4 rounded border-gray-300"
-                        />
-                        <div
-                          className="w-4 h-4 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: folder.color }}
-                        />
-                        <span className="text-[#222222]">{folder.name}</span>
-                      </label>
+                        <label className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={filterModalCheckedIds.has(folder.id)}
+                            onChange={() => {
+                              setFilterModalCheckedIds(prev => {
+                                const next = new Set(prev);
+                                if (next.has(folder.id)) next.delete(folder.id);
+                                else next.add(folder.id);
+                                return next;
+                              });
+                            }}
+                            className="w-4 h-4 rounded border-gray-300"
+                          />
+                          <div
+                            className="w-4 h-4 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: folder.color }}
+                          />
+                          <span className="text-[#222222] truncate">{folder.name}</span>
+                        </label>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); deleteFolder(folder.id); }}
+                          className="p-1.5 rounded text-[#7D7D7D] hover:text-red-500 hover:bg-red-50 flex-shrink-0"
+                          title="Ordner löschen"
+                          aria-label="Ordner löschen"
+                        >
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                            <line x1="10" y1="11" x2="10" y2="17" />
+                            <line x1="14" y1="11" x2="14" y2="17" />
+                          </svg>
+                        </button>
+                      </div>
                     ))}
                   </div>
                   <button
@@ -685,7 +783,7 @@ export default function Home() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setShowAddFolderFromTodoModal(true)}
+                    onClick={() => setShowFolderModal(true)}
                     className="w-full mt-3 px-4 py-2 border-2 border-gray-200 rounded-lg text-[#222222] hover:bg-gray-50 transition-colors font-medium flex items-center justify-center gap-2"
                   >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -697,9 +795,9 @@ export default function Home() {
               </div>
             )}
 
-            {/* Folder Modal (add/manage folders) */}
+            {/* Folder Modal (add/manage folders + delete) */}
             {showFolderModal && (
-              <div id="folder-modal-overlay" className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setShowFolderModal(false)}>
+              <div id="folder-modal-overlay" className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60]" onClick={() => setShowFolderModal(false)}>
                 <div id="folder-modal" className="bg-white rounded-lg p-6 max-w-sm w-full mx-4" onClick={(e) => e.stopPropagation()}>
                   <h2 id="folder-modal-title" className="text-xl font-bold text-[#222222] mb-4">Ordner</h2>
                   <div id="add-folder-section" className="mb-4">
@@ -732,11 +830,27 @@ export default function Home() {
                       Hinzufügen
                     </button>
                   </div>
+                  <h3 className="text-sm font-semibold text-[#222222] mb-2">Deine Ordner</h3>
                   <div id="folder-list" className="space-y-2 max-h-40 overflow-y-auto">
                     {folders.map(folder => (
-                      <div key={folder.id} id={`folder-item-${folder.id}`} className="flex items-center gap-2 px-3 py-2 rounded">
-                        <div className="w-4 h-4 rounded-full" style={{ backgroundColor: folder.color }} />
-                        <span className="text-[#222222]">{folder.name}</span>
+                      <div key={folder.id} id={`folder-item-${folder.id}`} className="flex items-center justify-between gap-2 px-3 py-2 rounded hover:bg-gray-50">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: folder.color }} />
+                          <span className="text-[#222222] truncate">{folder.name}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => deleteFolder(folder.id)}
+                          className="p-1.5 rounded text-[#7D7D7D] hover:text-red-500 hover:bg-red-50 flex-shrink-0"
+                          title="Ordner löschen"
+                          aria-label="Ordner löschen"
+                        >
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                            <line x1="10" y1="11" x2="10" y2="17" />
+                            <line x1="14" y1="11" x2="14" y2="17" />
+                          </svg>
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -744,7 +858,7 @@ export default function Home() {
               </div>
             )}
 
-            {/* Add Folder Modal (from add-todo modal) */}
+            {/* Add Folder Modal (standalone – e.g. when opened from add-todo) */}
             {showAddFolderFromTodoModal && (
               <div id="add-folder-from-todo-overlay" className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60]" onClick={() => setShowAddFolderFromTodoModal(false)}>
                 <div id="add-folder-from-todo-modal" className="bg-white rounded-lg p-6 max-w-sm w-full mx-4" onClick={(e) => e.stopPropagation()}>
@@ -780,7 +894,7 @@ export default function Home() {
 
             {/* Add Todo Modal (two-step: Dein To-Do → folder/time + Set) */}
             {showAddTodoModal && (
-              <div id="add-todo-modal-overlay" className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => { setShowAddTodoModal(false); setAddTodoStep(1); }}>
+              <div id="add-todo-modal-overlay" className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => { setShowAddTodoModal(false); setAddTodoStep(1); setNewTodoRepeating(''); }}>
                 <div id="add-todo-modal" className="bg-white rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
                   {addTodoStep === 1 && !editingTodo ? (
                     <>
@@ -835,7 +949,7 @@ export default function Home() {
                         <button
                           id="add-folder-from-todo-btn"
                           type="button"
-                          onClick={(e) => { e.stopPropagation(); setShowAddFolderFromTodoModal(true); }}
+                          onClick={(e) => { e.stopPropagation(); setShowFolderModal(true); }}
                           className="p-2 rounded-lg hover:bg-gray-100 flex items-center gap-2 text-[#222222] text-sm"
                           title="Ordner hinzufügen"
                         >
@@ -855,23 +969,48 @@ export default function Home() {
                             <button
                               id="folder-option-none"
                               onClick={() => setNewTodoFolder('')}
-                              className={`px-4 py-3 rounded-xl border-2 transition-all flex items-center gap-2 ${!newTodoFolder ? 'border-[#222222] bg-gray-50' : 'border-gray-200 hover:border-gray-300'}`}
+                              className={`min-h-[3.25rem] px-4 py-3 rounded-xl border-2 transition-all flex items-center justify-center gap-2 text-sm font-medium ${
+                                !newTodoFolder ? 'border-[#222222] bg-gray-50 text-[#222222]' : 'border-gray-200 text-[#222222] hover:border-gray-300'
+                              }`}
                             >
-                              <span className="text-sm font-medium text-[#222222]">Kein Ordner</span>
+                              Kein Ordner
                             </button>
                             {folders.map(folder => (
                               <button
                                 key={folder.id}
                                 id={`folder-option-${folder.id}`}
                                 onClick={() => setNewTodoFolder(folder.id)}
-                                className={`px-4 py-3 rounded-xl border-2 transition-all flex items-center gap-2 ${newTodoFolder === folder.id ? 'border-[#222222] bg-gray-50' : 'border-gray-200 hover:border-gray-300'}`}
+                                className={`min-h-[3.25rem] px-4 py-3 rounded-xl border-2 transition-all flex items-center justify-center gap-2 text-sm font-medium ${
+                                  newTodoFolder === folder.id ? 'border-[#222222] bg-gray-50 text-[#222222]' : 'border-gray-200 text-[#222222] hover:border-gray-300'
+                                }`}
                               >
                                 <div className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: folder.color }} />
-                                <span className="text-sm font-medium text-[#222222]">{folder.name}</span>
+                                <span className="truncate">{folder.name}</span>
                               </button>
                             ))}
                           </div>
                         </div>
+                        {!editingTodo && (
+                          <div id="todo-repeat-field">
+                            <label id="todo-repeat-label" className="block text-sm font-medium text-[#7D7D7D] mb-2">Wiederholen</label>
+                            <div className="grid grid-cols-2 gap-2">
+                              {(['', 'daily', 'weekly', 'monthly', 'yearly'] as const).map((value) => (
+                                <button
+                                  key={value || 'none'}
+                                  type="button"
+                                  onClick={() => setNewTodoRepeating(value)}
+                                  className={`min-h-[3.25rem] px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all ${
+                                    newTodoRepeating === value
+                                      ? 'border-[#222222] bg-gray-50 text-[#222222]'
+                                      : 'border-gray-200 text-[#7D7D7D] hover:border-gray-300'
+                                  }`}
+                                >
+                                  {value === '' ? 'Kein' : value === 'daily' ? 'Täglich' : value === 'weekly' ? 'Wöchentlich' : value === 'monthly' ? 'Monatlich' : 'Jährlich'}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                         <div id="todo-time-field">
                           <label id="todo-time-label" className="block text-sm font-medium text-[#7D7D7D] mb-2">Zeit (optional)</label>
                           <input
@@ -890,6 +1029,7 @@ export default function Home() {
                               setNewTodoText('');
                               setNewTodoFolder('');
                               setNewTodoTime('');
+                              setNewTodoRepeating('');
                               setEditingTodo(null);
                               setAddTodoStep(1);
                             }}
@@ -909,6 +1049,36 @@ export default function Home() {
                       </div>
                     </>
                   )}
+                </div>
+              </div>
+            )}
+
+            {/* Delete Todo Confirmation (repeating: only this vs all) */}
+            {showDeleteTodoModal && todoToDelete && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => { setShowDeleteTodoModal(false); setTodoToDelete(null); }}>
+                <div className="bg-white rounded-lg p-6 max-w-sm w-full mx-4" onClick={(e) => e.stopPropagation()}>
+                  <h2 className="text-xl font-bold text-[#222222] mb-2">Wiederholendes To-Do löschen</h2>
+                  <p className="text-[#7D7D7D] text-sm mb-6">Möchtest du nur dieses To-Do oder die gesamte Wiederholung löschen?</p>
+                  <div className="space-y-2">
+                    <button
+                      onClick={() => deleteTodo(todoToDelete.id)}
+                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl text-[#222222] hover:bg-gray-50 font-medium"
+                    >
+                      Nur dieses To-Do löschen
+                    </button>
+                    <button
+                      onClick={() => todoToDelete.seriesId && deleteTodoSeries(todoToDelete.seriesId)}
+                      className="w-full px-4 py-3 bg-[#222222] text-white rounded-xl hover:bg-[#333333] font-medium"
+                    >
+                      Alle wiederholenden löschen
+                    </button>
+                    <button
+                      onClick={() => { setShowDeleteTodoModal(false); setTodoToDelete(null); }}
+                      className="w-full px-4 py-2 text-[#7D7D7D] hover:text-[#222222] text-sm"
+                    >
+                      Abbrechen
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -945,7 +1115,7 @@ export default function Home() {
                         </button>
                         <button
                           id={`delete-todo-${todo.id}`}
-                          onClick={() => deleteTodo(todo.id)}
+                          onClick={() => requestDeleteTodo(todo)}
                           className="flex-1 flex items-center justify-center bg-red-500 text-white text-xs font-medium hover:bg-red-600 transition-colors rounded-r-lg"
                         >
                           Löschen
