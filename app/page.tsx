@@ -39,7 +39,7 @@ export default function Home() {
   const [showFolderModal, setShowFolderModal] = useState(false);
   const [filterModalCheckedIds, setFilterModalCheckedIds] = useState<Set<string>>(new Set());
   const [showAddFolderFromTodoModal, setShowAddFolderFromTodoModal] = useState(false);
-  const [addTodoStep, setAddTodoStep] = useState<1 | 2>(1);
+  const [addTodoStep, setAddTodoStep] = useState<1 | 2 | 3 | 4>(1);
   const [showAddTodoModal, setShowAddTodoModal] = useState(false);
   const [showMonthPicker, setShowMonthPicker] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
@@ -257,7 +257,7 @@ export default function Home() {
     } else {
       setNewTodoTime('');
     }
-    setAddTodoStep(2);
+    setAddTodoStep(4);
     setShowAddTodoModal(true);
     setTodoSwipeOffsets(prev => ({ ...prev, [todo.id]: 0 }));
   };
@@ -892,11 +892,12 @@ export default function Home() {
               </div>
             )}
 
-            {/* Add Todo Modal (two-step: Dein To-Do → folder/time + Set) */}
+            {/* Add Todo Modal (steps: 1 To-Do → 2 Ordner → 3 Wiederholen → 4 Zeit + Set) */}
             {showAddTodoModal && (
               <div id="add-todo-modal-overlay" className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => { setShowAddTodoModal(false); setAddTodoStep(1); setNewTodoRepeating(''); }}>
                 <div id="add-todo-modal" className="bg-white rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-                  {addTodoStep === 1 && !editingTodo ? (
+                  {/* Step 1: Dein To-Do */}
+                  {addTodoStep === 1 && !editingTodo && (
                     <>
                       <h2 id="add-todo-modal-title" className="text-xl font-bold text-[#222222] text-center mb-6">Dein To-Do</h2>
                       <div id="add-todo-form" className="space-y-6">
@@ -929,23 +930,22 @@ export default function Home() {
                         </div>
                       </div>
                     </>
-                  ) : (
+                  )}
+
+                  {/* Step 2: Ordner */}
+                  {addTodoStep === 2 && !editingTodo && (
                     <>
                       <div className="flex items-center justify-between mb-6">
-                        {!editingTodo ? (
-                          <button
-                            type="button"
-                            onClick={() => setAddTodoStep(1)}
-                            className="text-sm text-[#7D7D7D] hover:text-[#222222] flex items-center gap-1"
-                          >
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <path d="M19 12H5M12 19l-7-7 7-7" />
-                            </svg>
-                            Zurück
-                          </button>
-                        ) : (
-                          <span />
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => setAddTodoStep(1)}
+                          className="text-sm text-[#7D7D7D] hover:text-[#222222] flex items-center gap-1"
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M19 12H5M12 19l-7-7 7-7" />
+                          </svg>
+                          Zurück
+                        </button>
                         <button
                           id="add-folder-from-todo-btn"
                           type="button"
@@ -959,53 +959,154 @@ export default function Home() {
                           Ordner hinzufügen
                         </button>
                       </div>
-                      <h2 id="add-todo-modal-title" className="text-xl font-bold text-[#222222] mb-6">
-                        {editingTodo ? 'Aufgabe bearbeiten' : 'Ordner & Zeit'}
+                      <h2 id="add-todo-modal-title" className="text-xl font-bold text-[#222222] text-center mb-6">Ordner</h2>
+                      <div id="folder-options" className="grid grid-cols-2 gap-2 mb-6">
+                        <button
+                          id="folder-option-none"
+                          onClick={() => setNewTodoFolder('')}
+                          className={`min-h-[3.25rem] px-4 py-3 rounded-xl border-2 transition-all flex items-center justify-center gap-2 text-sm font-medium ${
+                            !newTodoFolder ? 'border-[#222222] bg-gray-50 text-[#222222]' : 'border-gray-200 text-[#222222] hover:border-gray-300'
+                          }`}
+                        >
+                          /
+                        </button>
+                        {folders.map(folder => (
+                          <button
+                            key={folder.id}
+                            id={`folder-option-${folder.id}`}
+                            onClick={() => setNewTodoFolder(folder.id)}
+                            className={`min-h-[3.25rem] px-4 py-3 rounded-xl border-2 transition-all flex items-center justify-center gap-2 text-sm font-medium ${
+                              newTodoFolder === folder.id ? 'border-[#222222] bg-gray-50 text-[#222222]' : 'border-gray-200 text-[#222222] hover:border-gray-300'
+                            }`}
+                          >
+                            <div className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: folder.color }} />
+                            <span className="truncate">{folder.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex justify-center">
+                        <button
+                          type="button"
+                          onClick={() => setAddTodoStep(3)}
+                          className="w-14 h-14 rounded-full border-2 border-[#222222] flex items-center justify-center text-[#222222] hover:bg-[#222222] hover:text-white transition-colors"
+                          aria-label="Weiter"
+                        >
+                          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M5 12h14M12 5l7 7-7 7" />
+                          </svg>
+                        </button>
+                      </div>
+                    </>
+                  )}
+
+                  {/* Step 3: Wiederholen? */}
+                  {addTodoStep === 3 && !editingTodo && (
+                    <>
+                      <div className="flex items-center justify-between mb-6">
+                        <button
+                          type="button"
+                          onClick={() => setAddTodoStep(2)}
+                          className="text-sm text-[#7D7D7D] hover:text-[#222222] flex items-center gap-1"
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M19 12H5M12 19l-7-7 7-7" />
+                          </svg>
+                          Zurück
+                        </button>
+                        <span />
+                      </div>
+                      <h2 id="add-todo-modal-title" className="text-xl font-bold text-[#222222] text-center mb-6">Wiederholen?</h2>
+                      <div className="grid grid-cols-2 gap-2 mb-6">
+                        {(['', 'daily', 'weekly', 'monthly', 'yearly'] as const).map((value) => (
+                          <button
+                            key={value || 'none'}
+                            type="button"
+                            onClick={() => setNewTodoRepeating(value)}
+                            className={`min-h-[3.25rem] px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all ${
+                              newTodoRepeating === value
+                                ? 'border-[#222222] bg-gray-50 text-[#222222]'
+                                : 'border-gray-200 text-[#7D7D7D] hover:border-gray-300'
+                            }`}
+                          >
+                            {value === '' ? 'Kein' : value === 'daily' ? 'Täglich' : value === 'weekly' ? 'Wöchentlich' : value === 'monthly' ? 'Monatlich' : 'Jährlich'}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex justify-center">
+                        <button
+                          type="button"
+                          onClick={() => setAddTodoStep(4)}
+                          className="w-14 h-14 rounded-full border-2 border-[#222222] flex items-center justify-center text-[#222222] hover:bg-[#222222] hover:text-white transition-colors"
+                          aria-label="Weiter"
+                        >
+                          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M5 12h14M12 5l7 7-7 7" />
+                          </svg>
+                        </button>
+                      </div>
+                    </>
+                  )}
+
+                  {/* Step 4: Zeit + Set (or Edit view) */}
+                  {(addTodoStep === 4 || editingTodo) && (
+                    <>
+                      <div className="flex items-center justify-between mb-6">
+                        {editingTodo ? (
+                          <span />
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setAddTodoStep(3)}
+                            className="text-sm text-[#7D7D7D] hover:text-[#222222] flex items-center gap-1"
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M19 12H5M12 19l-7-7 7-7" />
+                            </svg>
+                            Zurück
+                          </button>
+                        )}
+                        {editingTodo && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setShowFolderModal(true); }}
+                            className="p-2 rounded-lg hover:bg-gray-100 flex items-center gap-2 text-[#222222] text-sm"
+                            title="Ordner hinzufügen"
+                          >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                            </svg>
+                            Ordner hinzufügen
+                          </button>
+                        )}
+                      </div>
+                      <h2 id="add-todo-modal-title" className="text-xl font-bold text-[#222222] text-center mb-6">
+                        {editingTodo ? 'Aufgabe bearbeiten' : 'Zeit'}
                       </h2>
-                      <div id="add-todo-form" className="space-y-5">
-                        <div id="todo-folder-field">
-                          <label id="todo-folder-label" className="block text-sm font-medium text-[#7D7D7D] mb-2">Ordner (optional)</label>
-                          <div id="folder-options" className="grid grid-cols-2 gap-2">
-                            <button
-                              id="folder-option-none"
-                              onClick={() => setNewTodoFolder('')}
-                              className={`min-h-[3.25rem] px-4 py-3 rounded-xl border-2 transition-all flex items-center justify-center gap-2 text-sm font-medium ${
-                                !newTodoFolder ? 'border-[#222222] bg-gray-50 text-[#222222]' : 'border-gray-200 text-[#222222] hover:border-gray-300'
-                              }`}
-                            >
-                              Kein Ordner
-                            </button>
-                            {folders.map(folder => (
+                      <div className="space-y-5">
+                        {editingTodo && (
+                          <div id="todo-folder-field">
+                            <label id="todo-folder-label" className="block text-sm font-medium text-[#7D7D7D] mb-2">Ordner</label>
+                            <div id="folder-options" className="grid grid-cols-2 gap-2">
                               <button
-                                key={folder.id}
-                                id={`folder-option-${folder.id}`}
-                                onClick={() => setNewTodoFolder(folder.id)}
+                                id="folder-option-none"
+                                onClick={() => setNewTodoFolder('')}
                                 className={`min-h-[3.25rem] px-4 py-3 rounded-xl border-2 transition-all flex items-center justify-center gap-2 text-sm font-medium ${
-                                  newTodoFolder === folder.id ? 'border-[#222222] bg-gray-50 text-[#222222]' : 'border-gray-200 text-[#222222] hover:border-gray-300'
+                                  !newTodoFolder ? 'border-[#222222] bg-gray-50 text-[#222222]' : 'border-gray-200 text-[#222222] hover:border-gray-300'
                                 }`}
                               >
-                                <div className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: folder.color }} />
-                                <span className="truncate">{folder.name}</span>
+                                /
                               </button>
-                            ))}
-                          </div>
-                        </div>
-                        {!editingTodo && (
-                          <div id="todo-repeat-field">
-                            <label id="todo-repeat-label" className="block text-sm font-medium text-[#7D7D7D] mb-2">Wiederholen</label>
-                            <div className="grid grid-cols-2 gap-2">
-                              {(['', 'daily', 'weekly', 'monthly', 'yearly'] as const).map((value) => (
+                              {folders.map(folder => (
                                 <button
-                                  key={value || 'none'}
-                                  type="button"
-                                  onClick={() => setNewTodoRepeating(value)}
-                                  className={`min-h-[3.25rem] px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all ${
-                                    newTodoRepeating === value
-                                      ? 'border-[#222222] bg-gray-50 text-[#222222]'
-                                      : 'border-gray-200 text-[#7D7D7D] hover:border-gray-300'
+                                  key={folder.id}
+                                  id={`folder-option-${folder.id}`}
+                                  onClick={() => setNewTodoFolder(folder.id)}
+                                  className={`min-h-[3.25rem] px-4 py-3 rounded-xl border-2 transition-all flex items-center justify-center gap-2 text-sm font-medium ${
+                                    newTodoFolder === folder.id ? 'border-[#222222] bg-gray-50 text-[#222222]' : 'border-gray-200 text-[#222222] hover:border-gray-300'
                                   }`}
                                 >
-                                  {value === '' ? 'Kein' : value === 'daily' ? 'Täglich' : value === 'weekly' ? 'Wöchentlich' : value === 'monthly' ? 'Monatlich' : 'Jährlich'}
+                                  <div className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: folder.color }} />
+                                  <span className="truncate">{folder.name}</span>
                                 </button>
                               ))}
                             </div>
