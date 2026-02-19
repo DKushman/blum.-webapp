@@ -56,8 +56,11 @@ export default function Home() {
   const [swipeStartX, setSwipeStartX] = useState<number | null>(null);
   const [swipeStartY, setSwipeStartY] = useState<number | null>(null);
   const [swipeTodoId, setSwipeTodoId] = useState<string | null>(null);
+  const [daySwipeStartX, setDaySwipeStartX] = useState<number | null>(null);
+  const [daySwipeStartY, setDaySwipeStartY] = useState<number | null>(null);
 
   const SWIPE_ACTION_WIDTH = 140;
+  const DAY_SWIPE_THRESHOLD = 50; // Minimum distance for day swipe
 
   // Ref for document-level mouse drag (so drag works when cursor leaves the row)
   const mouseDragRef = useRef<{ todoId: string; startX: number; offset: number } | null>(null);
@@ -462,6 +465,47 @@ export default function Home() {
       newMonth.setMonth(newMonth.getMonth() + 1);
     }
     setCurrentMonth(newMonth);
+  };
+
+  const handleDaySwipeStart = (clientX: number, clientY: number) => {
+    // Only start day swipe if not already swiping a todo
+    if (swipeTodoId === null && daySwipeStartX === null) {
+      setDaySwipeStartX(clientX);
+      setDaySwipeStartY(clientY);
+    }
+  };
+
+  const handleDaySwipeEnd = (clientX: number, clientY: number) => {
+    if (daySwipeStartX === null || daySwipeStartY === null) return;
+    
+    const deltaX = clientX - daySwipeStartX;
+    const deltaY = Math.abs(clientY - daySwipeStartY);
+    
+    // Only navigate if horizontal swipe is dominant and exceeds threshold
+    if (Math.abs(deltaX) > deltaY && Math.abs(deltaX) > DAY_SWIPE_THRESHOLD) {
+      setIsTransitioning(true);
+      const currentDate = new Date(displayDay);
+      const newDate = new Date(currentDate);
+      
+      if (deltaX > 0) {
+        // Swipe right → previous day
+        newDate.setDate(currentDate.getDate() - 1);
+      } else {
+        // Swipe left → next day
+        newDate.setDate(currentDate.getDate() + 1);
+      }
+      
+      if (currentView === 'chosen-day') {
+        setChosenDayFromCalendar(newDate);
+      } else {
+        setSelectedDay(newDate);
+      }
+      
+      setTimeout(() => setIsTransitioning(false), 400);
+    }
+    
+    setDaySwipeStartX(null);
+    setDaySwipeStartY(null);
   };
 
   // Use chosenDayFromCalendar for view 3, selectedDay for dashboard
@@ -1194,7 +1238,26 @@ export default function Home() {
             )}
 
             {/* Notes List */}
-            <div id="notes-list-container" className="overflow-hidden relative">
+            <div 
+              id="notes-list-container" 
+              className="overflow-hidden relative"
+              onTouchStart={(e) => {
+                // Only start day swipe if not touching a todo item and no todo swipe is active
+                if (swipeTodoId === null && daySwipeStartX === null) {
+                  const target = e.target as HTMLElement;
+                  if (!target.closest('[id^="todo-item"]') && 
+                      !target.closest('[id^="todo-actions"]') &&
+                      !target.closest('[id^="todo-item-wrapper"]')) {
+                    handleDaySwipeStart(e.touches[0].clientX, e.touches[0].clientY);
+                  }
+                }
+              }}
+              onTouchEnd={(e) => {
+                if (daySwipeStartX !== null && swipeTodoId === null) {
+                  handleDaySwipeEnd(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+                }
+              }}
+            >
               <div id="notes-list-inner" className="space-y-2">
                 {currentTodos.map((todo, index) => {
                   const folderColor = getFolderColor(todo.folderId);
