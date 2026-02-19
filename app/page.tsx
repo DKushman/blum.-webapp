@@ -472,11 +472,11 @@ export default function Home() {
 
   return (
     <main id="main-container" className="min-h-screen bg-[#F0F0F0] py-6">
-      <div id="app-wrapper" className="max-w-md mx-auto px-4">
+      <div id="app-wrapper" className="max-w-md md:max-w-lg lg:max-w-xl xl:max-w-2xl 2xl:max-w-5xl mx-auto px-4 md:px-6 lg:px-8 xl:px-12 2xl:px-16">
         {/* Header */}
-        <div id="header-section" className="text-center mb-6">
+        <div id="header-section" className="text-center mb-[clamp(1.5rem,4vw,4.5rem)]">
           {currentView === 'dashboard' || currentView === 'chosen-day' ? (
-            <h1 id="brand-logo" className="text-2xl font-bold text-[#222222] mb-2">
+            <h1 id="brand-logo" className="text-[clamp(1.5rem,4vw,4.5rem)] font-bold text-[#222222] mb-2">
               Blumè.
             </h1>
           ) : (
@@ -484,21 +484,21 @@ export default function Home() {
               <button
                 id="prev-month-btn"
                 onClick={() => navigateMonth('prev')}
-                className="text-[#222222] text-xl px-4"
+                className="text-[#222222] text-[clamp(1.25rem,2.5vw,3.5rem)] px-4"
               >
                 ←
               </button>
               <button
                 id="month-selector"
                 onClick={() => setShowMonthPicker(!showMonthPicker)}
-                className="text-2xl font-bold text-[#222222] flex-1"
+                className="text-[clamp(1.5rem,4vw,4.5rem)] font-bold text-[#222222] flex-1"
               >
                 {months[currentMonth.getMonth()]}.
               </button>
               <button
                 id="next-month-btn"
                 onClick={() => navigateMonth('next')}
-                className="text-[#222222] text-xl px-4"
+                className="text-[#222222] text-[clamp(1.25rem,2.5vw,3.5rem)] px-4"
               >
                 →
               </button>
@@ -560,7 +560,7 @@ export default function Home() {
                 setSelectedDay(new Date()); // Always reset to current day for dashboard
                 setTimeout(() => setIsTransitioning(false), 300);
               }}
-              className={`text-lg ${currentView === 'dashboard' ? 'underline font-semibold' : ''} text-[#222222] transition-all`}
+              className={`text-[clamp(1.125rem,2vw,3rem)] ${currentView === 'dashboard' ? 'underline font-semibold' : ''} text-[#222222] transition-all`}
             >
               1
             </button>
@@ -571,7 +571,7 @@ export default function Home() {
                 setCurrentView('monthly');
                 setTimeout(() => setIsTransitioning(false), 300);
               }}
-              className={`text-lg ${currentView === 'monthly' ? 'underline font-semibold' : ''} text-[#222222] transition-all`}
+              className={`text-lg md:text-xl lg:text-2xl ${currentView === 'monthly' ? 'underline font-semibold' : ''} text-[#222222] transition-all`}
             >
               2
             </button>
@@ -583,7 +583,7 @@ export default function Home() {
                 setCurrentView('chosen-day');
                 setTimeout(() => setIsTransitioning(false), 300);
               }}
-              className={`text-lg ${currentView === 'chosen-day' ? 'underline font-semibold' : ''} text-[#222222] transition-all`}
+              className={`text-lg md:text-xl lg:text-2xl ${currentView === 'chosen-day' ? 'underline font-semibold' : ''} text-[#222222] transition-all`}
             >
               3
             </button>
@@ -592,10 +592,10 @@ export default function Home() {
 
         {/* Dashboard View and Chosen Day View */}
         {(currentView === 'dashboard' || currentView === 'chosen-day') && (
-          <div id="dashboard-view" className="space-y-4" key={currentView}>
+          <div id="dashboard-view" className="space-y-[clamp(1rem,3vw,3rem)]" key={currentView}>
             {/* Weekday Navigation */}
-            <div id="weekday-navigation-wrapper" className="-mx-4 w-screen relative">
-              <div id="weekday-navigation" className="flex gap-1 px-2 w-full">
+            <div id="weekday-navigation-wrapper" className="relative">
+              <div id="weekday-navigation" className="flex gap-[clamp(0.25rem,1vw,0.75rem)] w-full">
               {weekdays.map((day, index) => {
                 const currentWeekdayIndex = getCurrentWeekdayIndex();
                 const isSelected = index === currentWeekdayIndex;
@@ -634,16 +634,16 @@ export default function Home() {
                 return (
                   <div key={day} id={`weekday-wrapper-${index}`} className="flex-1 relative min-w-0">
                     {isToday && (
-                      <span id={`today-label-${index}`} className="absolute -top-4 left-1/2 transform -translate-x-1/2 text-[10px] text-[#7D7D7D] whitespace-nowrap">
+                      <span id={`today-label-${index}`} className="absolute -top-4 md:-top-5 lg:-top-6 left-1/2 transform -translate-x-1/2 text-[10px] md:text-xs lg:text-sm text-[#7D7D7D] whitespace-nowrap">
                         Heute
                       </span>
                     )}
                     <button
                       id={`weekday-btn-${index}`}
                       onClick={() => handleWeekdayClick(index)}
-                      className={`w-full py-3 px-1 rounded-lg transition-all duration-300 ${bgColor} ${textColor} min-w-0`}
+                      className={`w-full py-[clamp(0.75rem,2vw,2.5rem)] px-[clamp(0.25rem,1vw,1rem)] rounded-lg transition-all duration-300 ${bgColor} ${textColor} min-w-0`}
                     >
-                      <span id={`weekday-text-${index}`} className="text-[10px] font-medium truncate block">
+                      <span id={`weekday-text-${index}`} className="text-[clamp(0.5rem,1vw,0.875rem)] font-medium truncate block">
                         {day}
                       </span>
                     </button>
@@ -654,14 +654,14 @@ export default function Home() {
             </div>
 
             {/* Action Grid */}
-            <div id="action-grid" className="grid grid-cols-3 gap-2">
+            <div id="action-grid" className="grid grid-cols-3 gap-2 md:gap-3 lg:gap-4 xl:gap-6 2xl:gap-8">
               <button
                 id="folder-filter-btn"
                 onClick={() => {
                   setFilterModalCheckedIds(new Set(selectedFolderFilters));
                   setShowFilterModal(true);
                 }}
-                className="bg-white rounded-lg p-4 flex items-center justify-center hover:bg-gray-50 transition-colors"
+                className="bg-white rounded-lg p-[clamp(1rem,2vw,3rem)] flex items-center justify-center hover:bg-gray-50 transition-colors"
               >
                 <img
                   id="filter-icon"
@@ -669,15 +669,15 @@ export default function Home() {
                   alt="Filter"
                   width={24}
                   height={24}
-                  className="object-contain"
+                  className="object-contain w-[clamp(1.5rem,3vw,4rem)] h-[clamp(1.5rem,3vw,4rem)]"
                 />
               </button>
               
-              <div id="date-display" className="bg-white rounded-lg p-4 flex flex-col items-center justify-center">
-                <span id="day-number" className="text-5xl font-bold text-[#222222] leading-none mb-0">
+              <div id="date-display" className="bg-white rounded-lg p-[clamp(1rem,2vw,3rem)] flex flex-col items-center justify-center">
+                <span id="day-number" className="text-[clamp(3rem,8vw,9rem)] font-bold text-[#222222] leading-none mb-0">
                   {formatDate(displayDay)}
                 </span>
-                <span id="month-name" className="text-sm text-[#7D7D7D]">
+                <span id="month-name" className="text-[clamp(0.875rem,1.5vw,2.25rem)] text-[#7D7D7D]">
                   {months[displayDay.getMonth()]}
                 </span>
               </div>
@@ -693,9 +693,9 @@ export default function Home() {
                   setEditingTodo(null);
                   setShowAddTodoModal(true);
                 }}
-                className="bg-white rounded-lg p-4 flex items-center justify-center hover:bg-gray-50 transition-colors"
+                className="bg-white rounded-lg p-[clamp(1rem,2vw,3rem)] flex items-center justify-center hover:bg-gray-50 transition-colors"
               >
-                <span id="plus-icon" className="text-3xl font-light text-[#222222]">+</span>
+                <span id="plus-icon" className="text-[clamp(1.875rem,5vw,6rem)] font-light text-[#222222]">+</span>
               </button>
             </div>
 
