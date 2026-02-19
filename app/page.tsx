@@ -130,8 +130,17 @@ export default function Home() {
       return todo.date === dateStr;
     });
 
-    // Incomplete first, completed at bottom
-    return [...filtered].sort((a, b) => (a.completed ? 1 : 0) - (b.completed ? 1 : 0));
+    // Sort: incomplete first (grouped by folder), then completed at bottom (also grouped by folder)
+    return [...filtered].sort((a, b) => {
+      // First sort by completed status (incomplete first)
+      const completedDiff = (a.completed ? 1 : 0) - (b.completed ? 1 : 0);
+      if (completedDiff !== 0) return completedDiff;
+      
+      // Within same completion status, group by folderId
+      const folderA = a.folderId || '';
+      const folderB = b.folderId || '';
+      return folderA.localeCompare(folderB);
+    });
   };
 
   const getTodosForMonth = (date: Date) => {
@@ -1361,30 +1370,25 @@ export default function Home() {
                     <div id={`day-todos-${index}`} className="flex flex-wrap gap-1 items-center">
                       {allTodosForDay.slice(0, 5).map((todo, todoIndex) => {
                         const isOverdue = overdueTodos.some(ot => ot.id === todo.id);
-                        if (todo.completed) {
-                          return (
-                            <span
-                              key={todo.id}
-                              id={`day-todo-indicator-${index}-${todoIndex}`}
-                              className="inline-flex items-center justify-center w-3 h-3 text-[10px] text-green-600"
-                              aria-label="Erledigt"
-                            >
-                              ✓
-                            </span>
-                          );
-                        }
+                        const folderColor = getFolderColor(todo.folderId);
                         return (
                           <div
                             key={todo.id}
                             id={`day-todo-indicator-${index}-${todoIndex}`}
-                            className={`w-3 h-3 rounded ${
+                            className={`w-3 h-3 rounded relative flex items-center justify-center ${
                               isOverdue ? 'border-2 border-red-500' : ''
                             }`}
                             style={{ 
-                              backgroundColor: isOverdue ? 'transparent' : getFolderColor(todo.folderId),
+                              backgroundColor: isOverdue ? 'transparent' : folderColor,
                               borderColor: isOverdue ? '#EF4444' : 'transparent'
                             }}
-                          />
+                          >
+                            {todo.completed && (
+                              <span className="text-[8px] text-white font-bold leading-none" style={{ textShadow: '0 0 1px rgba(0,0,0,0.5)' }}>
+                                ✓
+                              </span>
+                            )}
+                          </div>
                         );
                       })}
                       {allTodosForDay.length > 5 && (
