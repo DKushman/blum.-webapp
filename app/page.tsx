@@ -60,7 +60,7 @@ export default function Home() {
   const [daySwipeStartY, setDaySwipeStartY] = useState<number | null>(null);
 
   const SWIPE_ACTION_WIDTH = 140;
-  const DAY_SWIPE_THRESHOLD = 50; // Minimum distance for day swipe
+  const DAY_SWIPE_THRESHOLD = 30; // Minimum distance for day swipe
 
   // Ref for document-level mouse drag (so drag works when cursor leaves the row)
   const mouseDragRef = useRef<{ todoId: string; startX: number; offset: number } | null>(null);
@@ -480,9 +480,11 @@ export default function Home() {
     
     const deltaX = clientX - daySwipeStartX;
     const deltaY = Math.abs(clientY - daySwipeStartY);
+    const absDeltaX = Math.abs(deltaX);
     
     // Only navigate if horizontal swipe is dominant and exceeds threshold
-    if (Math.abs(deltaX) > deltaY && Math.abs(deltaX) > DAY_SWIPE_THRESHOLD) {
+    // Allow swipe even if slightly vertical, as long as horizontal is significant
+    if (absDeltaX > DAY_SWIPE_THRESHOLD && absDeltaX > deltaY * 0.7) {
       setIsTransitioning(true);
       const currentDate = new Date(displayDay);
       const newDate = new Date(currentDate);
@@ -636,7 +638,39 @@ export default function Home() {
 
         {/* Dashboard View and Chosen Day View */}
         {(currentView === 'dashboard' || currentView === 'chosen-day') && (
-          <div id="dashboard-view" className="space-y-4" key={currentView}>
+          <div 
+            id="dashboard-view" 
+            className="space-y-4" 
+            key={currentView}
+            onTouchStart={(e) => {
+              // Only start day swipe if not touching a todo item and no todo swipe is active
+              if (swipeTodoId === null && daySwipeStartX === null) {
+                const target = e.target as HTMLElement;
+                // Allow swipe from anywhere except todo items and their actions
+                if (!target.closest('[id^="todo-item"]') && 
+                    !target.closest('[id^="todo-actions"]') &&
+                    !target.closest('[id^="todo-item-wrapper"]')) {
+                  handleDaySwipeStart(e.touches[0].clientX, e.touches[0].clientY);
+                }
+              }
+            }}
+            onTouchMove={(e) => {
+              // Prevent default scrolling if we're doing a horizontal swipe
+              if (daySwipeStartX !== null && swipeTodoId === null) {
+                const deltaX = Math.abs(e.touches[0].clientX - daySwipeStartX);
+                const deltaY = Math.abs(e.touches[0].clientY - (daySwipeStartY || 0));
+                // If horizontal swipe is dominant, prevent vertical scroll
+                if (deltaX > deltaY && deltaX > 10) {
+                  e.preventDefault();
+                }
+              }
+            }}
+            onTouchEnd={(e) => {
+              if (daySwipeStartX !== null && swipeTodoId === null) {
+                handleDaySwipeEnd(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+              }
+            }}
+          >
             {/* Weekday Navigation */}
             <div id="weekday-navigation-wrapper" className="-mx-4 w-screen relative">
               <div id="weekday-navigation" className="flex gap-1 px-2 w-full">
@@ -1241,22 +1275,6 @@ export default function Home() {
             <div 
               id="notes-list-container" 
               className="overflow-hidden relative"
-              onTouchStart={(e) => {
-                // Only start day swipe if not touching a todo item and no todo swipe is active
-                if (swipeTodoId === null && daySwipeStartX === null) {
-                  const target = e.target as HTMLElement;
-                  if (!target.closest('[id^="todo-item"]') && 
-                      !target.closest('[id^="todo-actions"]') &&
-                      !target.closest('[id^="todo-item-wrapper"]')) {
-                    handleDaySwipeStart(e.touches[0].clientX, e.touches[0].clientY);
-                  }
-                }
-              }}
-              onTouchEnd={(e) => {
-                if (daySwipeStartX !== null && swipeTodoId === null) {
-                  handleDaySwipeEnd(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
-                }
-              }}
             >
               <div id="notes-list-inner" className="space-y-2">
                 {currentTodos.map((todo, index) => {
