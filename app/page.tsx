@@ -1202,7 +1202,7 @@ export default function Home() {
               <div id="notes-list-inner" className="space-y-2">
                 {currentTodos.map((todo, index) => {
                   const folderColor = getFolderColor(todo.folderId);
-                  const isOverdueTask = isOverdue(todo);
+                  const isOverdueTask = isOverdue(todo) && !todo.completed;
                   const swipeOffset = getSwipeOffset(todo.id);
                   const isSwipedOpen = swipeOffset < 0;
                   
@@ -1344,7 +1344,7 @@ export default function Home() {
                 const overdueTodos = allTodosForDay.filter(todo => {
                   const todoDate = new Date(todo.date + 'T00:00:00');
                   todoDate.setHours(0, 0, 0, 0);
-                  return todoDate < today;
+                  return todoDate < today && !todo.completed;
                 });
                 
                 const isSelected = day.toDateString() === chosenDayFromCalendar.toDateString();
