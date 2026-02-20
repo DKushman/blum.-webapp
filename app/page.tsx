@@ -126,7 +126,8 @@ export default function Home() {
       const todoDate = new Date(todo.date + 'T00:00:00');
       todoDate.setHours(0, 0, 0, 0);
       
-      if (isToday && todoDate < today) return true;
+      // Only show overdue tasks on "today" if they are not completed; completed ones stay on their original day
+      if (isToday && todoDate < today && !todo.completed) return true;
       return todo.date === dateStr;
     });
 
@@ -1333,7 +1334,7 @@ export default function Home() {
                   overdueTodosForDay.push(...todos.filter(todo => {
                     const todoDate = new Date(todo.date + 'T00:00:00');
                     todoDate.setHours(0, 0, 0, 0);
-                    return todoDate < today;
+                    return todoDate < today && !todo.completed;
                   }));
                 }
                 
