@@ -56,6 +56,7 @@ export default function Home() {
   const [swipeStartX, setSwipeStartX] = useState<number | null>(null);
   const [swipeStartY, setSwipeStartY] = useState<number | null>(null);
   const [swipeTodoId, setSwipeTodoId] = useState<string | null>(null);
+  const [datePickForTodoId, setDatePickForTodoId] = useState<string | null>(null); // Beim Bearbeiten: Tag auswählen zum Verschieben
 
   const SWIPE_ACTION_WIDTH = 140;
 
@@ -438,9 +439,30 @@ export default function Home() {
 
 
   const handleDayClick = (day: Date) => {
+    // Wenn wir im "Tag verschieben"-Modus sind: To-Do auf diesen Tag verschieben
+    if (datePickForTodoId) {
+      const newDateStr = formatDateString(day);
+      setTodos(todos.map(todo =>
+        todo.id === datePickForTodoId ? { ...todo, date: newDateStr } : todo
+      ));
+      setDatePickForTodoId(null);
+      setSelectedDay(day);
+      setChosenDayFromCalendar(day);
+      setCurrentView('chosen-day');
+      return;
+    }
     setSelectedDay(day);
     setChosenDayFromCalendar(day); // Store the day chosen from monthly overview
     setCurrentView('chosen-day');
+  };
+
+  const startPickDateForTodo = () => {
+    if (!editingTodo) return;
+    setDatePickForTodoId(editingTodo.id);
+    setCurrentMonth(new Date(editingTodo.date + 'T00:00:00'));
+    setShowAddTodoModal(false);
+    setCurrentView('monthly');
+    setEditingTodo(null); // Modal ist zu, State aufräumen
   };
 
   const handleWeekdayClick = (index: number) => {
@@ -1094,8 +1116,50 @@ export default function Home() {
                       </h2>
                       <div className="space-y-5">
                         {editingTodo && (
-                          <div id="todo-folder-field">
-                            <label id="todo-folder-label" className="block text-sm font-medium text-[#7D7D7D] mb-2">Ordner</label>
+                          <>
+                            <div id="todo-text-edit-field">
+                              <label id="todo-text-edit-label" className="block text-sm font-medium text-[#7D7D7D] mb-2">Text</label>
+                              <textarea
+                                id="todo-text-edit-input"
+                                value={newTodoText}
+                                onChange={(e) => {
+                                  setNewTodoText(e.target.value);
+                                  const ta = e.target;
+                                  ta.style.height = 'auto';
+                                  ta.style.height = ta.scrollHeight + 'px';
+                                }}
+                                placeholder="To-Do Text"
+                                rows={2}
+                                className="w-full min-h-[3rem] max-h-48 px-4 py-3 border-2 border-gray-200 rounded-xl text-[#222222] focus:border-[#222222] focus:outline-none transition-colors resize-none overflow-y-auto box-border"
+                              />
+                            </div>
+                            <div id="todo-date-move-field">
+                              <label className="block text-sm font-medium text-[#7D7D7D] mb-2">Tag</label>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[#222222]">
+                                  {editingTodo.date && (() => {
+                                    const d = new Date(editingTodo.date + 'T00:00:00');
+                                    return `${d.getDate()}. ${months[d.getMonth()]}`;
+                                  })()}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={startPickDateForTodo}
+                                  className="px-3 py-2 border-2 border-gray-200 rounded-xl text-sm text-[#222222] hover:border-[#222222] hover:bg-gray-50 transition-colors font-medium flex items-center gap-2"
+                                >
+                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                                    <line x1="16" y1="2" x2="16" y2="6" />
+                                    <line x1="8" y1="2" x2="8" y2="6" />
+                                    <line x1="3" y1="10" x2="21" y2="10" />
+                                  </svg>
+                                  Tag ändern
+                                </button>
+                              </div>
+                              <p className="text-xs text-[#7D7D7D] mt-1">Öffnet die Monatsansicht zum Auswählen eines neuen Tags.</p>
+                            </div>
+                            <div id="todo-folder-field">
+                              <label id="todo-folder-label" className="block text-sm font-medium text-[#7D7D7D] mb-2">Ordner</label>
                             <div id="folder-options" className="grid grid-cols-2 gap-2">
                               <button
                                 id="folder-option-none"
@@ -1121,6 +1185,7 @@ export default function Home() {
                               ))}
                             </div>
                           </div>
+                          </>
                         )}
                         <div id="todo-time-field">
                           <label id="todo-time-label" className="block text-sm font-medium text-[#7D7D7D] mb-2">Zeit (optional)</label>
@@ -1317,6 +1382,20 @@ export default function Home() {
         {/* Monthly Overview */}
         {currentView === 'monthly' && (
           <div id="monthly-view" className="space-y-4" key="monthly">
+            {datePickForTodoId && (
+              <div className="bg-[#222222] text-white rounded-lg p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <p className="text-sm font-medium text-center sm:text-left">
+                  Wähle einen Tag, um das To-Do dorthin zu verschieben.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setDatePickForTodoId(null)}
+                  className="px-4 py-2 bg-white text-[#222222] rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors shrink-0"
+                >
+                  Abbrechen
+                </button>
+              </div>
+            )}
             <div id="calendar-grid" className="grid grid-cols-3 gap-2">
               {daysInMonth.map((day, index) => {
                 const today = new Date();
