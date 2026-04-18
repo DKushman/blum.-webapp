@@ -22,7 +22,7 @@ Dieses Buch erklärt dir die Blumè. To-Do App in der **Reihenfolge, wie man sie
 
 # Kapitel 1: Warum verlassen wir Vanilla HTML/CSS/JS?
 
-## 1.1 Wie eine Vanilla-Webapp funktioniert
+j## 1.1 Wie eine Vanilla-Webapp funktioniert
 
 Stell dir vor, du baust eine einfache To-Do Liste mit purem HTML, CSS und JavaScript:
 
@@ -124,7 +124,7 @@ button {
     opacity: 0.6;
 }
 ```
-
+v v    v
 ### Die JavaScript-Datei (app.js)
 
 ```javascript
@@ -428,7 +428,7 @@ Bei 100 To-Dos:
 
 **DAS ist der Grund, warum React so schnell ist.**
 
-## 2.2 Next.js - Das React-Framework
+## 2.2 Next.js - Das React-Framework2
 
 ### Warum React allein nicht reicht
 
@@ -3013,3 +3013,4 @@ Füge VOR dem `todo-circle` eine Checkbox hinzu:
 **Herzlichen Glückwunsch!**
 
 Du hast jetzt das Wissen, um diese App vollständig zu verstehen. Der beste nächste Schritt ist, den Code zu ändern und zu experimentieren. Viel Erfolg!
+6\u

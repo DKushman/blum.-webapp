@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Fragment } from 'react';
 
 type Folder = {
   id: string;
@@ -63,6 +63,8 @@ export default function Home() {
   // Ref for document-level mouse drag (so drag works when cursor leaves the row)
   const mouseDragRef = useRef<{ todoId: string; startX: number; offset: number } | null>(null);
   const didMouseDragRef = useRef(false);
+  const weekPanTouchRef = useRef<{ startX: number; startY: number } | null>(null);
+  const weekSwipeHandledRef = useRef(false);
 
   // Load folders from localStorage on mount
   const [folders, setFolders] = useState<Folder[]>(() => {
@@ -108,6 +110,32 @@ export default function Home() {
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+  };
+
+  /** Kalenderwoche Montag–Sonntag (deutsch) */
+  const getMondaySundayOfWeek = (anchor: Date) => {
+    const d = new Date(anchor);
+    d.setHours(0, 0, 0, 0);
+    const jsDay = d.getDay();
+    const offsetToMonday = jsDay === 0 ? -6 : 1 - jsDay;
+    const monday = new Date(d);
+    monday.setDate(d.getDate() + offsetToMonday);
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    return { monday, sunday };
+  };
+
+  const formatWeekRangeLine = (anchor: Date) => {
+    const { monday, sunday } = getMondaySundayOfWeek(anchor);
+    const sameMonth = monday.getMonth() === sunday.getMonth() && monday.getFullYear() === sunday.getFullYear();
+    if (sameMonth) {
+      return `${monday.getDate()}.–${sunday.getDate()}. ${months[monday.getMonth()]} ${monday.getFullYear()}`;
+    }
+    const sameYear = monday.getFullYear() === sunday.getFullYear();
+    if (sameYear) {
+      return `${monday.getDate()}. ${months[monday.getMonth()]} – ${sunday.getDate()}. ${months[sunday.getMonth()]} ${monday.getFullYear()}`;
+    }
+    return `${monday.getDate()}. ${months[monday.getMonth()]} ${monday.getFullYear()} – ${sunday.getDate()}. ${months[sunday.getMonth()]} ${sunday.getFullYear()}`;
   };
 
   const getTodosForDay = (date: Date) => {
@@ -465,16 +493,81 @@ export default function Home() {
     setEditingTodo(null); // Modal ist zu, State aufräumen
   };
 
-  const handleWeekdayClick = (index: number) => {
+  const shiftDisplayWeek = (direction: -1 | 1) => {
     setIsTransitioning(true);
-    const currentDate = new Date(selectedDay);
-    const currentDayOfWeek = getCurrentWeekdayIndex();
+    const delta = direction * 7;
+    if (currentView === 'chosen-day') {
+      const d = new Date(chosenDayFromCalendar);
+      d.setDate(d.getDate() + delta);
+      setChosenDayFromCalendar(d);
+      setSelectedDay(d);
+    } else {
+      const d = new Date(selectedDay);
+      d.setDate(d.getDate() + delta);
+      setSelectedDay(d);
+    }
+    setTimeout(() => setIsTransitioning(false), 400);
+  };
+
+  const handleWeekdayClick = (index: number) => {
+    if (weekSwipeHandledRef.current) {
+      weekSwipeHandledRef.current = false;
+      return;
+    }
+    setIsTransitioning(true);
+    const dayToUse = currentView === 'chosen-day' ? chosenDayFromCalendar : selectedDay;
+    const currentDate = new Date(dayToUse);
+    const day = dayToUse.getDay();
+    const currentDayOfWeek = day === 0 ? 6 : day - 1;
     const diff = index - currentDayOfWeek;
     const newDate = new Date(currentDate);
     newDate.setDate(currentDate.getDate() + diff);
     setSelectedDay(newDate);
-    // Don't switch to chosen-day view when clicking weekday in dashboard
+    if (currentView === 'chosen-day') setChosenDayFromCalendar(newDate);
     setTimeout(() => setIsTransitioning(false), 400);
+  };
+
+  const handleWeekNavMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    weekSwipeHandledRef.current = false;
+
+    const onUp = (ev: MouseEvent) => {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (Math.abs(dx) >= 50 && Math.abs(dx) > Math.abs(dy)) {
+        weekSwipeHandledRef.current = true;
+        shiftDisplayWeek(dx > 0 ? -1 : 1);
+      }
+      cleanup();
+    };
+
+    const cleanup = () => {
+      document.removeEventListener('mouseup', onUp);
+    };
+
+    document.addEventListener('mouseup', onUp);
+  };
+
+  const handleWeekNavTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length !== 1) return;
+    const t = e.touches[0];
+    weekPanTouchRef.current = { startX: t.clientX, startY: t.clientY };
+  };
+
+  const handleWeekNavTouchEnd = (e: React.TouchEvent) => {
+    const start = weekPanTouchRef.current;
+    weekPanTouchRef.current = null;
+    if (!start || e.changedTouches.length === 0) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - start.startX;
+    const dy = t.clientY - start.startY;
+    if (Math.abs(dx) >= 50 && Math.abs(dx) > Math.abs(dy)) {
+      weekSwipeHandledRef.current = true;
+      shiftDisplayWeek(dx > 0 ? -1 : 1);
+      e.preventDefault();
+    }
   };
 
   const navigateMonth = (direction: 'prev' | 'next') => {
@@ -492,6 +585,161 @@ export default function Home() {
   const currentTodos = getTodosForDay(displayDay);
   const monthTodos = getTodosForMonth(currentMonth);
   const daysInMonth = getDaysInMonth(currentMonth);
+
+  const folderKeyOrder: string[] = [];
+  const todosByFolder = new Map<string, Todo[]>();
+  for (const todo of currentTodos) {
+    const key = todo.folderId ?? '';
+    if (!todosByFolder.has(key)) {
+      todosByFolder.set(key, []);
+      folderKeyOrder.push(key);
+    }
+    todosByFolder.get(key)!.push(todo);
+  }
+  const todoFolderGroups = folderKeyOrder.map((folderId) => ({
+    folderId,
+    todos: todosByFolder.get(folderId)!,
+  }));
+
+  let todoListAnimIndex = 0;
+  const renderTodoRow = (todo: Todo) => {
+    const index = todoListAnimIndex++;
+    const folderColor = getFolderColor(todo.folderId);
+    const isOverdueTask = isOverdue(todo) && !todo.completed;
+    const swipeOffset = getSwipeOffset(todo.id);
+    const isSwipedOpen = swipeOffset < 0;
+
+    return (
+      <div
+        key={`${formatDateString(displayDay)}-${todo.id}`}
+        id={`todo-item-wrapper-${todo.id}`}
+        className="rounded-lg overflow-hidden relative"
+        style={{
+          animation: `slideUpFromBottom 0.4s cubic-bezier(0.4, 0, 0.2, 1) ${index * 0.05}s both`,
+        }}
+      >
+        <div
+          id={`todo-actions-${todo.id}`}
+          className="absolute right-0 top-0 bottom-0 w-[140px] flex z-0 rounded-r-lg overflow-hidden"
+        >
+          <button
+            id={`edit-todo-${todo.id}`}
+            onClick={() => startEditTodo(todo)}
+            className="flex-1 flex items-center justify-center bg-[#222222] text-white text-xs font-medium hover:bg-[#333333] transition-colors rounded-l-lg"
+          >
+            Bearbeiten
+          </button>
+          <button
+            id={`delete-todo-${todo.id}`}
+            onClick={() => requestDeleteTodo(todo)}
+            className="flex-1 flex items-center justify-center bg-red-500 text-white text-xs font-medium hover:bg-red-600 transition-colors rounded-r-lg"
+          >
+            Löschen
+          </button>
+        </div>
+
+        <div
+          id={`todo-item-${todo.id}`}
+          className={`relative z-10 rounded-lg p-4 flex items-center gap-3 cursor-pointer hover:bg-gray-50 transition-transform duration-200 ease-out ${
+            isOverdueTask ? 'bg-red-50' : 'bg-white'
+          }`}
+          style={{
+            transform: `translateX(${swipeOffset}px)`,
+            touchAction: 'pan-y',
+          }}
+          onClick={() => {
+            if (didMouseDragRef.current) {
+              didMouseDragRef.current = false;
+              return;
+            }
+            if (!isSwipedOpen) toggleTodoComplete(todo.id);
+          }}
+          onTouchStart={(e) => handleSwipeStart(todo.id, e.touches[0].clientX, e.touches[0].clientY)}
+          onTouchMove={(e) => handleTouchMove(e, todo.id)}
+          onTouchEnd={() => handleSwipeEnd(todo.id)}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            handleSwipeStart(todo.id, e.clientX);
+          }}
+          onMouseMove={(e) => {
+            if (swipeTodoId === todo.id && e.buttons === 1) {
+              didMouseDragRef.current = true;
+              handleSwipeMove(todo.id, e.clientX);
+            }
+          }}
+          onMouseUp={() => handleSwipeEnd(todo.id)}
+          onMouseLeave={() => {
+            if (swipeTodoId === todo.id) handleSwipeEnd(todo.id);
+          }}
+        >
+          <div
+            id={`todo-circle-${todo.id}`}
+            className={`w-5 h-5 rounded-full border-2 flex-shrink-0 transition-all ${
+              todo.completed ? '' : ''
+            }`}
+            style={{
+              borderColor: isOverdueTask ? '#EF4444' : folderColor,
+              backgroundColor: todo.completed ? (isOverdueTask ? '#EF4444' : folderColor) : 'transparent',
+            }}
+          />
+
+          <div id={`todo-content-${todo.id}`} className="flex-1 min-w-0">
+            {todo.time && (
+              <span id={`todo-time-${todo.id}`} className={`text-xs text-[#7D7D7D] block ${todo.completed ? 'line-through opacity-60' : ''}`}>
+                {todo.time.includes(':') ? todo.time.split(':')[0] + ' Uhr' : todo.time}
+              </span>
+            )}
+            <span id={`todo-text-${todo.id}`} className={`text-[#222222] block ${todo.completed ? 'line-through opacity-60' : ''}`}>
+              {todo.text}
+            </span>
+            {isOverdueTask && (
+              <span id={`todo-overdue-date-${todo.id}`} className={`text-xs text-red-500 block mt-1 ${todo.completed ? 'line-through opacity-60' : ''}`}>
+                {getOverdueOriginalDate(todo)}
+              </span>
+            )}
+          </div>
+
+          <div
+            id={`todo-tag-${todo.id}`}
+            className="px-2 py-1 rounded text-xs text-white flex-shrink-0"
+            style={{ backgroundColor: folderColor }}
+          >
+            {getFolderName(todo.folderId)}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const todoListNodes = todoFolderGroups.map((group) => {
+    const fid = group.folderId || 'none';
+    if (group.todos.length === 1) {
+      return <Fragment key={`single-${fid}-${group.todos[0].id}`}>{renderTodoRow(group.todos[0])}</Fragment>;
+    }
+    const folderColor = getFolderColor(group.folderId);
+    const folderName = getFolderName(group.folderId);
+    return (
+      <details
+        key={`folder-group-${fid}-${formatDateString(displayDay)}`}
+        id={`todo-folder-group-${fid}`}
+        className="folder-todo-details rounded-lg overflow-hidden bg-white shadow-sm border border-gray-100 open:ring-1 open:ring-gray-200"
+      >
+        <summary className="cursor-pointer list-none flex items-center justify-between gap-3 px-4 py-3 text-[#222222] hover:bg-gray-50 transition-colors [&::-webkit-details-marker]:hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-[#222222] rounded-lg">
+          <span className="flex items-center gap-2 min-w-0 flex-1">
+            <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: folderColor }} />
+            <span className="font-medium truncate">{folderName}</span>
+            <span className="text-sm text-[#7D7D7D] shrink-0">{group.todos.length} To-Dos</span>
+          </span>
+          <svg className="folder-todo-chevron w-5 h-5 text-[#7D7D7D] shrink-0 transition-transform duration-300 ease-out" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+            <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </summary>
+        <div className="folder-todo-details-panel px-2 pb-2 pt-0 space-y-2 border-t border-gray-100 bg-[#F0F0F0]">
+          {group.todos.map((todo) => renderTodoRow(todo))}
+        </div>
+      </details>
+    );
+  });
 
   return (
     <main id="main-container" className="min-h-screen bg-[#F0F0F0] py-6">
@@ -617,7 +865,19 @@ export default function Home() {
         {(currentView === 'dashboard' || currentView === 'chosen-day') && (
           <div id="dashboard-view" className="space-y-[clamp(1rem,3vw,3rem)]" key={currentView}>
             {/* Weekday Navigation */}
-            <div id="weekday-navigation-wrapper" className="relative">
+            <div
+              id="weekday-navigation-wrapper"
+              className="relative select-none touch-pan-y"
+              onMouseDown={handleWeekNavMouseDown}
+              onTouchStart={handleWeekNavTouchStart}
+              onTouchEnd={handleWeekNavTouchEnd}
+            >
+              <p
+                id="week-range-label"
+                className="text-center text-[clamp(0.7rem,1.6vw,0.875rem)] text-[#7D7D7D] mb-2 font-medium tracking-tight"
+              >
+                {formatWeekRangeLine(displayDay)}
+              </p>
               <div id="weekday-navigation" className="flex gap-[clamp(0.25rem,1vw,0.75rem)] w-full">
               {weekdays.map((day, index) => {
                 const currentWeekdayIndex = getCurrentWeekdayIndex();
@@ -1265,115 +1525,7 @@ export default function Home() {
               className="overflow-hidden relative"
             >
               <div id="notes-list-inner" className="space-y-2">
-                {currentTodos.map((todo, index) => {
-                  const folderColor = getFolderColor(todo.folderId);
-                  const isOverdueTask = isOverdue(todo) && !todo.completed;
-                  const swipeOffset = getSwipeOffset(todo.id);
-                  const isSwipedOpen = swipeOffset < 0;
-                  
-                  return (
-                    <div
-                      key={`${displayDay.toISOString()}-${todo.id}`}
-                      id={`todo-item-wrapper-${todo.id}`}
-                      className="rounded-lg overflow-hidden relative"
-                      style={{
-                        animation: `slideUpFromBottom 0.4s cubic-bezier(0.4, 0, 0.2, 1) ${index * 0.05}s both`,
-                      }}
-                    >
-                      {/* Action buttons (revealed on swipe left) */}
-                      <div
-                        id={`todo-actions-${todo.id}`}
-                        className="absolute right-0 top-0 bottom-0 w-[140px] flex z-0 rounded-r-lg overflow-hidden"
-                      >
-                        <button
-                          id={`edit-todo-${todo.id}`}
-                          onClick={() => startEditTodo(todo)}
-                          className="flex-1 flex items-center justify-center bg-[#222222] text-white text-xs font-medium hover:bg-[#333333] transition-colors rounded-l-lg"
-                        >
-                          Bearbeiten
-                        </button>
-                        <button
-                          id={`delete-todo-${todo.id}`}
-                          onClick={() => requestDeleteTodo(todo)}
-                          className="flex-1 flex items-center justify-center bg-red-500 text-white text-xs font-medium hover:bg-red-600 transition-colors rounded-r-lg"
-                        >
-                          Löschen
-                        </button>
-                      </div>
-
-                      {/* Sliding content */}
-                      <div
-                        id={`todo-item-${todo.id}`}
-                        className={`relative z-10 rounded-lg p-4 flex items-center gap-3 cursor-pointer hover:bg-gray-50 transition-transform duration-200 ease-out ${
-                          isOverdueTask ? 'bg-red-50' : 'bg-white'
-                        }`}
-                        style={{
-                          transform: `translateX(${swipeOffset}px)`,
-                          touchAction: 'pan-y',
-                        }}
-                        onClick={() => {
-                          if (didMouseDragRef.current) {
-                            didMouseDragRef.current = false;
-                            return;
-                          }
-                          if (!isSwipedOpen) toggleTodoComplete(todo.id);
-                        }}
-                        onTouchStart={(e) => handleSwipeStart(todo.id, e.touches[0].clientX, e.touches[0].clientY)}
-                        onTouchMove={(e) => handleTouchMove(e, todo.id)}
-                        onTouchEnd={() => handleSwipeEnd(todo.id)}
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          handleSwipeStart(todo.id, e.clientX);
-                        }}
-                        onMouseMove={(e) => {
-                          if (swipeTodoId === todo.id && e.buttons === 1) {
-                            didMouseDragRef.current = true;
-                            handleSwipeMove(todo.id, e.clientX);
-                          }
-                        }}
-                        onMouseUp={() => handleSwipeEnd(todo.id)}
-                        onMouseLeave={() => {
-                          if (swipeTodoId === todo.id) handleSwipeEnd(todo.id);
-                        }}
-                      >
-                        <div
-                          id={`todo-circle-${todo.id}`}
-                          className={`w-5 h-5 rounded-full border-2 flex-shrink-0 transition-all ${
-                            todo.completed ? '' : ''
-                          }`}
-                          style={{
-                            borderColor: isOverdueTask ? '#EF4444' : folderColor,
-                            backgroundColor: todo.completed ? (isOverdueTask ? '#EF4444' : folderColor) : 'transparent',
-                          }}
-                        />
-                        
-                        <div id={`todo-content-${todo.id}`} className="flex-1 min-w-0">
-                          {todo.time && (
-                            <span id={`todo-time-${todo.id}`} className={`text-xs text-[#7D7D7D] block ${todo.completed ? 'line-through opacity-60' : ''}`}>
-                              {todo.time.includes(':') ? todo.time.split(':')[0] + ' Uhr' : todo.time}
-                            </span>
-                          )}
-                          <span id={`todo-text-${todo.id}`} className={`text-[#222222] block ${todo.completed ? 'line-through opacity-60' : ''}`}>
-                            {todo.text}
-                          </span>
-                          {isOverdueTask && (
-                            <span id={`todo-overdue-date-${todo.id}`} className={`text-xs text-red-500 block mt-1 ${todo.completed ? 'line-through opacity-60' : ''}`}>
-                              {getOverdueOriginalDate(todo)}
-                            </span>
-                          )}
-                        </div>
-                        
-                        <div
-                          id={`todo-tag-${todo.id}`}
-                          className="px-2 py-1 rounded text-xs text-white flex-shrink-0"
-                          style={{ backgroundColor: folderColor }}
-                        >
-                          {getFolderName(todo.folderId)}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+                {todoListNodes}
               </div>
             </div>
           </div>
@@ -1545,6 +1697,25 @@ export default function Home() {
           to {
             opacity: 1;
           }
+        }
+
+        @keyframes folderPanelReveal {
+          from {
+            opacity: 0;
+            transform: translateY(-10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        details.folder-todo-details[open] > .folder-todo-details-panel {
+          animation: folderPanelReveal 0.38s cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+
+        details.folder-todo-details[open] .folder-todo-chevron {
+          transform: rotate(180deg);
         }
       `}</style>
     </main>
