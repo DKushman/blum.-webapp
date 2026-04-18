@@ -1,7 +1,13 @@
 'use client';
 
 import { useState, useEffect, useLayoutEffect, useRef, Fragment, useMemo, useCallback } from 'react';
-import { BLUME_ENTRY_AREA_KEY, EntryModePicker, FitnessComingSoon } from '@/components/EntryModePicker';
+import {
+  BLUME_ENTRY_AREA_KEY,
+  EntryModePicker,
+  AreaComingSoon,
+  type BlumeEntryArea,
+} from '@/components/EntryModePicker';
+import { FitnessDashboard } from '@/components/FitnessDashboard';
 
 type Folder = {
   id: string;
@@ -25,6 +31,8 @@ type Todo = {
 };
 
 type View = 'dashboard' | 'chosen-day' | 'monthly';
+
+type EntryRoute = 'hydrating' | 'picker' | BlumeEntryArea;
 
 const weekdays = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
 const months = [
@@ -85,7 +93,7 @@ export default function Home() {
   const [weekColW, setWeekColW] = useState(0);
   const [weekTranslateX, setWeekTranslateX] = useState(0);
   const [weekStripTransition, setWeekStripTransition] = useState(true);
-  const [entryArea, setEntryArea] = useState<'hydrating' | 'picker' | 'todo' | 'fitness'>('hydrating');
+  const [entryArea, setEntryArea] = useState<EntryRoute>('hydrating');
 
   // Load folders from localStorage on mount
   const [folders, setFolders] = useState<Folder[]>(() => {
@@ -434,9 +442,11 @@ export default function Home() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const v = localStorage.getItem(BLUME_ENTRY_AREA_KEY);
-    if (v === 'fitness') setEntryArea('fitness');
-    else if (v === 'todo') setEntryArea('todo');
-    else setEntryArea('picker');
+    if (v === 'todo' || v === 'fitness' || v === 'notes' || v === 'workflows') {
+      setEntryArea(v);
+    } else {
+      setEntryArea('picker');
+    }
   }, []);
 
   useLayoutEffect(() => {
@@ -986,13 +996,9 @@ export default function Home() {
   if (entryArea === 'picker') {
     return (
       <EntryModePicker
-        onPickTodo={() => {
-          if (typeof window !== 'undefined') localStorage.setItem(BLUME_ENTRY_AREA_KEY, 'todo');
-          setEntryArea('todo');
-        }}
-        onPickFitness={() => {
-          if (typeof window !== 'undefined') localStorage.setItem(BLUME_ENTRY_AREA_KEY, 'fitness');
-          setEntryArea('fitness');
+        onSelect={(area) => {
+          if (typeof window !== 'undefined') localStorage.setItem(BLUME_ENTRY_AREA_KEY, area);
+          setEntryArea(area);
         }}
       />
     );
@@ -1000,7 +1006,36 @@ export default function Home() {
 
   if (entryArea === 'fitness') {
     return (
-      <FitnessComingSoon
+      <FitnessDashboard
+        onBackToPicker={() => {
+          if (typeof window !== 'undefined') localStorage.removeItem(BLUME_ENTRY_AREA_KEY);
+          setEntryArea('picker');
+        }}
+      />
+    );
+  }
+
+  const comingSoon =
+    entryArea === 'notes'
+        ? {
+            title: 'Notizen',
+            tag: 'Demnächst',
+            body: 'Kurz notieren, strukturieren und mit Aufgaben verknüpfen — folgt in einem Update.',
+          }
+        : entryArea === 'workflows'
+          ? {
+              title: 'Workflows',
+              tag: 'Demnächst',
+              body: 'Wiederkehrende Abläufe und Schnellaktionen — hier entsteht die Steuerzentrale.',
+            }
+          : null;
+
+  if (comingSoon) {
+    return (
+      <AreaComingSoon
+        title={comingSoon.title}
+        tag={comingSoon.tag}
+        body={comingSoon.body}
         onSwitchToTodo={() => {
           if (typeof window !== 'undefined') localStorage.setItem(BLUME_ENTRY_AREA_KEY, 'todo');
           setEntryArea('todo');
