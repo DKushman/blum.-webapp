@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useLayoutEffect, useRef, Fragment, useMemo, useCallback } from 'react';
+import { BLUME_ENTRY_AREA_KEY, EntryModePicker, FitnessComingSoon } from '@/components/EntryModePicker';
 
 type Folder = {
   id: string;
@@ -15,8 +16,10 @@ type Todo = {
   text: string;
   folderId?: string;
   time?: string;
-  date: string; // YYYY-MM-DD format
+  date: string; // YYYY-MM-DD format — geplanter Tag
   completed: boolean;
+  /** Wenn erledigt: Tag, an dem abgehakt (für Anzeige); fehlt bei alten Daten → Fallback `date` */
+  completedOn?: string;
   seriesId?: string; // links repeating instances
   repeating?: Repeating;
 };
@@ -82,6 +85,7 @@ export default function Home() {
   const [weekColW, setWeekColW] = useState(0);
   const [weekTranslateX, setWeekTranslateX] = useState(0);
   const [weekStripTransition, setWeekStripTransition] = useState(true);
+  const [entryArea, setEntryArea] = useState<'hydrating' | 'picker' | 'todo' | 'fitness'>('hydrating');
 
   // Load folders from localStorage on mount
   const [folders, setFolders] = useState<Folder[]>(() => {
@@ -181,9 +185,14 @@ export default function Home() {
       
       const todoDate = new Date(todo.date + 'T00:00:00');
       todoDate.setHours(0, 0, 0, 0);
-      
-      // Only show overdue tasks on "today" if they are not completed; completed ones stay on their original day
-      if (isToday && todoDate < today && !todo.completed) return true;
+
+      if (todo.completed) {
+        const doneDay = todo.completedOn ?? todo.date;
+        return doneDay === dateStr;
+      }
+
+      // Unvollständig: geplanter Tag oder überfällig auf „heute“
+      if (isToday && todoDate < today) return true;
       return todo.date === dateStr;
     });
 
@@ -227,6 +236,7 @@ export default function Home() {
   };
 
   const isOverdue = (todo: Todo) => {
+    if (todo.completed) return false;
     const todoDate = new Date(todo.date);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -279,9 +289,16 @@ export default function Home() {
   const toggleTodoComplete = (todoId: string) => {
     // Don't toggle if swipe actions are open
     if (getSwipeOffset(todoId) < 0) return;
-    setTodos(todos.map(todo => 
-      todo.id === todoId ? { ...todo, completed: !todo.completed } : todo
-    ));
+    const todayStr = formatDateString(new Date());
+    setTodos(
+      todos.map((todo) => {
+        if (todo.id !== todoId) return todo;
+        if (todo.completed) {
+          return { ...todo, completed: false, completedOn: undefined };
+        }
+        return { ...todo, completed: true, completedOn: todayStr };
+      })
+    );
   };
 
   const deleteTodo = (todoId: string) => {
@@ -413,6 +430,14 @@ export default function Home() {
     selectedDay.getTime(),
     chosenDayFromCalendar.getTime(),
   ]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const v = localStorage.getItem(BLUME_ENTRY_AREA_KEY);
+    if (v === 'fitness') setEntryArea('fitness');
+    else if (v === 'todo') setEntryArea('todo');
+    else setEntryArea('picker');
+  }, []);
 
   useLayoutEffect(() => {
     if (currentView === 'monthly') return;
@@ -777,8 +802,8 @@ export default function Home() {
   }));
 
   let todoListAnimIndex = 0;
-  const renderTodoRow = (todo: Todo) => {
-    const index = todoListAnimIndex++;
+  const renderTodoRow = (todo: Todo, animIndex?: number) => {
+    const index = animIndex !== undefined ? animIndex : todoListAnimIndex++;
     const folderColor = getFolderColor(todo.folderId);
     const isOverdueTask = isOverdue(todo) && !todo.completed;
     const swipeOffset = getSwipeOffset(todo.id);
@@ -891,6 +916,8 @@ export default function Home() {
     if (group.todos.length === 1) {
       return <Fragment key={`single-${fid}-${group.todos[0].id}`}>{renderTodoRow(group.todos[0])}</Fragment>;
     }
+    const folderAnimStart = todoListAnimIndex;
+    todoListAnimIndex += group.todos.length;
     const folderColor = getFolderColor(group.folderId);
     const folderName = getFolderName(group.folderId);
     const folderGroupKey = `${fid}|${displayDayKey}`;
@@ -939,7 +966,7 @@ export default function Home() {
               }`}
               style={{ transitionDelay: isFolderOpen ? '40ms' : '0ms' }}
             >
-              {group.todos.map((todo) => renderTodoRow(todo))}
+              {group.todos.map((todo, i) => renderTodoRow(todo, folderAnimStart + i))}
             </div>
           </div>
         </div>
@@ -947,15 +974,70 @@ export default function Home() {
     );
   });
 
+  if (entryArea === 'hydrating') {
+    return (
+      <main id="entry-hydrating" className="flex min-h-screen flex-col items-center justify-center bg-[#F0F0F0] px-4">
+        <h1 className="text-[clamp(1.75rem,5vw,3rem)] font-bold text-[#222222]">Blumè.</h1>
+        <p className="mt-3 text-sm text-[#7D7D7D]">Wird geladen…</p>
+      </main>
+    );
+  }
+
+  if (entryArea === 'picker') {
+    return (
+      <EntryModePicker
+        onPickTodo={() => {
+          if (typeof window !== 'undefined') localStorage.setItem(BLUME_ENTRY_AREA_KEY, 'todo');
+          setEntryArea('todo');
+        }}
+        onPickFitness={() => {
+          if (typeof window !== 'undefined') localStorage.setItem(BLUME_ENTRY_AREA_KEY, 'fitness');
+          setEntryArea('fitness');
+        }}
+      />
+    );
+  }
+
+  if (entryArea === 'fitness') {
+    return (
+      <FitnessComingSoon
+        onSwitchToTodo={() => {
+          if (typeof window !== 'undefined') localStorage.setItem(BLUME_ENTRY_AREA_KEY, 'todo');
+          setEntryArea('todo');
+        }}
+        onBackToPicker={() => {
+          if (typeof window !== 'undefined') localStorage.removeItem(BLUME_ENTRY_AREA_KEY);
+          setEntryArea('picker');
+        }}
+      />
+    );
+  }
+
   return (
     <main id="main-container" className="min-h-screen bg-[#F0F0F0] py-6">
       <div id="app-wrapper" className="max-w-md md:max-w-lg lg:max-w-xl xl:max-w-2xl 2xl:max-w-5xl mx-auto px-4 md:px-6 lg:px-8 xl:px-12 2xl:px-16">
         {/* Header */}
         <div id="header-section" className="text-center mb-[clamp(1.5rem,4vw,4.5rem)]">
           {currentView === 'dashboard' || currentView === 'chosen-day' ? (
-            <h1 id="brand-logo" className="text-[clamp(1.5rem,4vw,4.5rem)] font-bold text-[#222222] mb-2">
-              Blumè.
-            </h1>
+            <div className="relative mb-2 flex items-center justify-center">
+              <button
+                type="button"
+                id="entry-area-switch-btn"
+                onClick={() => {
+                  if (typeof window !== 'undefined') localStorage.removeItem(BLUME_ENTRY_AREA_KEY);
+                  setEntryArea('picker');
+                }}
+                className="absolute left-0 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-xl text-[#222222] transition-colors hover:bg-gray-200/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#222222]"
+                aria-label="Zur Bereichsauswahl"
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M15 18l-6-6 6-6" />
+                </svg>
+              </button>
+              <h1 id="brand-logo" className="text-[clamp(1.5rem,4vw,4.5rem)] font-bold text-[#222222]">
+                Blumè.
+              </h1>
+            </div>
           ) : (
             <div id="month-header" className="flex items-center justify-between mb-2 relative">
               <button
@@ -1824,7 +1906,12 @@ export default function Home() {
                 
                 // Get todos for this specific day (include completed so they show with a check)
                 const dayDateStr = formatDateString(day);
-                const dayTodos = todos.filter(todo => todo.date === dayDateStr);
+                const dayTodos = todos.filter((todo) => {
+                  if (todo.completed) {
+                    return (todo.completedOn ?? todo.date) === dayDateStr;
+                  }
+                  return todo.date === dayDateStr;
+                });
                 
                 // Get overdue todos that should appear on this day (if viewing today)
                 const overdueTodosForDay: Todo[] = [];
