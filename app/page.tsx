@@ -59,11 +59,13 @@ export default function Home() {
   const [datePickForTodoId, setDatePickForTodoId] = useState<string | null>(null); // Beim Bearbeiten: Tag auswählen zum Verschieben
 
   const SWIPE_ACTION_WIDTH = 140;
+  const WEEK_PAN_TOUCH_THRESHOLD_PX = 14;
+  const WEEK_PAN_MOUSE_THRESHOLD_PX = 10;
+  const WEEK_PAN_PREVENT_SCROLL_PX = 22;
 
   // Ref for document-level mouse drag (so drag works when cursor leaves the row)
   const mouseDragRef = useRef<{ todoId: string; startX: number; offset: number } | null>(null);
   const didMouseDragRef = useRef(false);
-  const weekSwipeHandledRef = useRef(false);
   const weekViewportRef = useRef<HTMLDivElement>(null);
   const weekColWRef = useRef(0);
   const weekTranslateXRef = useRef(0);
@@ -595,13 +597,11 @@ export default function Home() {
     const settled = -w;
     const threshold = w * 0.2;
     if (finalT < settled - threshold) {
-      weekSwipeHandledRef.current = true;
       weekPendingCommitRef.current = 'next';
       setWeekStripTransition(true);
       setWeekTranslateX(-2 * w);
       weekTranslateXRef.current = -2 * w;
     } else if (finalT > settled + threshold) {
-      weekSwipeHandledRef.current = true;
       weekPendingCommitRef.current = 'prev';
       setWeekStripTransition(true);
       setWeekTranslateX(0);
@@ -639,20 +639,22 @@ export default function Home() {
       startX: t.clientX,
       startY: t.clientY,
       startTranslate: weekTranslateXRef.current,
-      dragging: true,
+      dragging: false,
     };
-    setWeekStripTransition(false);
   };
 
   const handleWeekNavTouchEnd = (e: React.TouchEvent) => {
     const g = weekGestureRef.current;
-    if (!g.dragging || g.pointer !== 'touch') return;
+    if (g.pointer !== 'touch') return;
     const t = e.changedTouches[0];
     if (!t) return;
     if (weekPendingCommitRef.current) return;
+    if (!g.dragging) {
+      g.pointer = null;
+      return;
+    }
     finishWeekGesture(t.clientX);
     g.pointer = null;
-    if (weekSwipeHandledRef.current) e.preventDefault();
   };
 
   const handleWeekNavMouseDown = (e: React.MouseEvent) => {
@@ -664,19 +666,34 @@ export default function Home() {
       startX: e.clientX,
       startY: e.clientY,
       startTranslate: weekTranslateXRef.current,
-      dragging: true,
+      dragging: false,
     };
-    setWeekStripTransition(false);
 
     const onMove = (ev: MouseEvent) => {
+      const g = weekGestureRef.current;
+      if (g.pointer !== 'mouse') return;
+      const dx = ev.clientX - g.startX;
+      const dy = ev.clientY - g.startY;
+      if (!g.dragging) {
+        if (Math.abs(dx) < WEEK_PAN_MOUSE_THRESHOLD_PX) return;
+        if (Math.abs(dx) <= Math.abs(dy)) return;
+        g.dragging = true;
+        setWeekStripTransition(false);
+      }
       applyWeekDragFromClientX(ev.clientX);
     };
 
     const onUp = (ev: MouseEvent) => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
-      if (!weekGestureRef.current.dragging) return;
+      const g = weekGestureRef.current;
+      if (g.pointer !== 'mouse') return;
+      if (!g.dragging) {
+        g.pointer = null;
+        return;
+      }
       finishWeekGesture(ev.clientX);
+      g.pointer = null;
     };
 
     window.addEventListener('mousemove', onMove);
@@ -689,14 +706,20 @@ export default function Home() {
     if (!el) return;
     const onNativeTouchMove = (ev: TouchEvent) => {
       const g = weekGestureRef.current;
-      if (!g.dragging || g.pointer !== 'touch') return;
+      if (g.pointer !== 'touch') return;
       const touch = ev.touches[0];
       if (!touch) return;
       const w = weekColWRef.current;
       if (w <= 0) return;
       const dx = touch.clientX - g.startX;
       const dy = touch.clientY - g.startY;
-      if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) {
+      if (!g.dragging) {
+        if (Math.abs(dx) < WEEK_PAN_TOUCH_THRESHOLD_PX) return;
+        if (Math.abs(dx) <= Math.abs(dy)) return;
+        g.dragging = true;
+        setWeekStripTransition(false);
+      }
+      if (g.dragging && Math.abs(dx) >= WEEK_PAN_PREVENT_SCROLL_PX && Math.abs(dx) > Math.abs(dy)) {
         ev.preventDefault();
       }
       applyWeekDragFromClientX(touch.clientX);
@@ -706,10 +729,6 @@ export default function Home() {
   }, [currentView, applyWeekDragFromClientX]);
 
   const handleWeekdayPickForAnchor = (anchorDate: Date, dayIndex: number) => {
-    if (weekSwipeHandledRef.current) {
-      weekSwipeHandledRef.current = false;
-      return;
-    }
     setIsTransitioning(true);
     const anchorIdx = getWeekdayIndexForDate(anchorDate);
     const newDate = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), anchorDate.getDate());
@@ -899,7 +918,7 @@ export default function Home() {
             <span className="text-sm text-[#7D7D7D] shrink-0">{group.todos.length} To-Dos</span>
           </span>
           <svg
-            className={`w-5 h-5 text-[#7D7D7D] shrink-0 transition-transform duration-300 ease-out motion-reduce:transition-none ${isFolderOpen ? 'rotate-180' : ''}`}
+            className={`w-5 h-5 text-[#7D7D7D] shrink-0 transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none ${isFolderOpen ? 'rotate-180' : ''}`}
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
@@ -910,11 +929,16 @@ export default function Home() {
           </svg>
         </button>
         <div
-          className="grid transition-[grid-template-rows] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+          className="grid will-change-[grid-template-rows] motion-reduce:transition-none transition-[grid-template-rows] duration-[460ms] ease-[cubic-bezier(0.16,1,0.32,1)]"
           style={{ gridTemplateRows: isFolderOpen ? '1fr' : '0fr' }}
         >
           <div className="min-h-0 overflow-hidden">
-            <div className="px-2 pb-2 pt-0 space-y-2 border-t border-gray-100 bg-[#F0F0F0]">
+            <div
+              className={`px-2 pb-2 pt-0 space-y-2 border-t border-gray-100 bg-[#F0F0F0] motion-reduce:transition-none transition-[opacity,transform] duration-400 ease-out ${
+                isFolderOpen ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-1 pointer-events-none'
+              }`}
+              style={{ transitionDelay: isFolderOpen ? '40ms' : '0ms' }}
+            >
               {group.todos.map((todo) => renderTodoRow(todo))}
             </div>
           </div>
@@ -1057,7 +1081,7 @@ export default function Home() {
                 onTouchEnd={handleWeekNavTouchEnd}
                 onTouchCancel={() => {
                   const g = weekGestureRef.current;
-                  if (g.pointer !== 'touch' || !g.dragging) return;
+                  if (g.pointer !== 'touch') return;
                   g.dragging = false;
                   g.pointer = null;
                   const w = weekColWRef.current;
@@ -1157,7 +1181,7 @@ export default function Home() {
                                   type="button"
                                   id={`weekday-btn-${colIdx}-${index}`}
                                   onClick={() => handleWeekdayPickForAnchor(anchorDate, index)}
-                                  className={`w-full py-[clamp(0.75rem,2vw,2.5rem)] px-[clamp(0.25rem,1vw,1rem)] rounded-lg transition-all duration-300 ${bgColor} ${textColor} min-w-0`}
+                                  className={`relative z-10 touch-manipulation w-full py-[clamp(0.75rem,2vw,2.5rem)] px-[clamp(0.25rem,1vw,1rem)] rounded-lg transition-all duration-300 ${bgColor} ${textColor} min-w-0`}
                                 >
                                   <span
                                     id={`weekday-text-${colIdx}-${index}`}
