@@ -52,11 +52,16 @@ export function EntryModePicker({ onSelect }: EntryModePickerProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const stageRef = useRef<HTMLDivElement>(null);
   const [geom, setGeom] = useState<Geom | null>(null);
-  const touchY0 = useRef<number | null>(null);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const wheelAccum = useRef(0);
+  const wheelAccumX = useRef(0);
 
   const go = useCallback((delta: number) => {
     setActiveIndex((i) => (i + delta + ENTRIES.length) % ENTRIES.length);
+  }, []);
+
+  const setActiveFromArc = useCallback((index: number) => {
+    setActiveIndex(index);
   }, []);
 
   useLayoutEffect(() => {
@@ -93,7 +98,24 @@ export function EntryModePicker({ onSelect }: EntryModePickerProps) {
     const el = stageRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
-      if (Math.abs(e.deltaY) < Math.abs(e.deltaX)) return;
+      const ax = Math.abs(e.deltaX);
+      const ay = Math.abs(e.deltaY);
+      if (ax > ay) {
+        if (ax < 0.5) return;
+        e.preventDefault();
+        wheelAccumX.current += e.deltaX;
+        const TH = 48;
+        while (wheelAccumX.current >= TH) {
+          wheelAccumX.current -= TH;
+          go(1);
+        }
+        while (wheelAccumX.current <= -TH) {
+          wheelAccumX.current += TH;
+          go(-1);
+        }
+        return;
+      }
+      if (ay < 0.5) return;
       e.preventDefault();
       wheelAccum.current += e.deltaY;
       const TH = 40;
@@ -120,10 +142,14 @@ export function EntryModePicker({ onSelect }: EntryModePickerProps) {
     }
   }
 
+  const arcMoveClass =
+    'duration-[520ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:duration-150 motion-reduce:ease-linear motion-reduce:transition-transform';
+  const arcColorClass = 'transition-[color,opacity] duration-200 ease-out motion-reduce:transition-none';
+
   return (
     <main
       id="entry-mode-picker"
-      className="relative min-h-screen overflow-hidden bg-[#F2F2F2] text-[#333333]"
+      className="relative min-h-screen overflow-x-hidden overflow-y-auto bg-[#F2F2F2] text-[#333333] [overflow-anchor:none] md:overflow-y-hidden"
       aria-label="Bereich wählen"
     >
       <p className="sr-only" aria-live="polite">
@@ -132,17 +158,32 @@ export function EntryModePicker({ onSelect }: EntryModePickerProps) {
 
       <div
         ref={stageRef}
-        className="relative mx-auto min-h-screen w-full max-w-none overflow-hidden"
+        className="relative mx-auto min-h-[min(125dvh,920px)] w-full max-w-none touch-pan-y overflow-x-hidden overflow-y-visible pb-[max(4rem,15dvh)] md:min-h-screen md:overflow-hidden md:pb-0"
         onTouchStart={(e) => {
-          if (e.touches.length === 1) touchY0.current = e.touches[0].clientY;
+          if (e.touches.length === 1) {
+            touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+          }
         }}
         onTouchEnd={(e) => {
-          const y0 = touchY0.current;
-          touchY0.current = null;
-          if (y0 == null || e.changedTouches.length === 0) return;
-          const dy = e.changedTouches[0].clientY - y0;
-          if (Math.abs(dy) < 28) return;
-          go(dy > 0 ? 1 : -1);
+          const start = touchStartRef.current;
+          touchStartRef.current = null;
+          if (!start || e.changedTouches.length === 0) return;
+          const end = e.changedTouches[0];
+          const dx = end.clientX - start.x;
+          const dy = end.clientY - start.y;
+          const adx = Math.abs(dx);
+          const ady = Math.abs(dy);
+          if (Math.max(adx, ady) < 22) return;
+          if (adx > ady) {
+            if (dx < -38) go(1);
+            else if (dx > 38) go(-1);
+          } else {
+            if (dy > 30) go(1);
+            else if (dy < -30) go(-1);
+          }
+        }}
+        onTouchCancel={() => {
+          touchStartRef.current = null;
         }}
       >
         {geom && (
@@ -178,24 +219,21 @@ export function EntryModePicker({ onSelect }: EntryModePickerProps) {
               ? { x: geom.activeX, y: geom.cy }
               : pointOnArc(geom.cx, geom.cy, geom.R, phi);
             const rotate = isActive ? 0 : tangentRotateDeg(phi);
-            const motion =
-              'duration-[480ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none';
             return (
               <button
                 key={entry.id}
                 type="button"
                 onClick={() => {
                   if (isActive) onSelect(entry.id);
-                  else setActiveIndex(i);
+                  else setActiveFromArc(i);
                 }}
-                className={`absolute flex flex-col items-center outline-none transition-[left,top,transform,color] ${motion} focus-visible:ring-2 focus-visible:ring-[#333]/20 focus-visible:ring-offset-2 focus-visible:ring-offset-[#F2F2F2] ${
+                className={`absolute left-0 top-0 flex flex-col items-center outline-none will-change-transform transition-transform ${arcMoveClass} focus-visible:ring-2 focus-visible:ring-[#333]/20 focus-visible:ring-offset-2 focus-visible:ring-offset-[#F2F2F2] ${
                   isActive ? 'z-20' : 'z-10'
                 }`}
                 style={{
-                  left: p.x,
-                  top: p.y,
-                  transform: `translate(-50%, -56%) rotate(${rotate}deg)`,
+                  transform: `translate3d(${p.x}px, ${p.y}px, 0) translate(-50%, -56%) rotate(${rotate}deg)`,
                   transformOrigin: 'center 44%',
+                  backfaceVisibility: 'hidden',
                 }}
                 aria-current={isActive ? 'true' : undefined}
                 aria-label={
@@ -203,7 +241,7 @@ export function EntryModePicker({ onSelect }: EntryModePickerProps) {
                 }
               >
                 <span
-                  className={`block font-bold tracking-[0.02em] tabular-nums transition-[font-size,color] ${motion}`}
+                  className={`block font-bold tracking-[0.02em] tabular-nums ${arcColorClass}`}
                   style={{
                     fontVariantNumeric: 'slashed-zero',
                     fontSize: isActive
@@ -217,7 +255,7 @@ export function EntryModePicker({ onSelect }: EntryModePickerProps) {
                   {entry.num}
                 </span>
                 <span
-                  className={`mt-1 max-w-[9rem] text-center font-medium leading-tight tracking-wide whitespace-nowrap transition-[font-size,color,opacity] ${motion}`}
+                  className={`mt-1 max-w-[9rem] text-center font-medium leading-tight tracking-wide whitespace-nowrap ${arcColorClass}`}
                   style={{
                     fontSize: isActive
                       ? 'clamp(0.68rem, min(2.2vw, 2vh), 0.85rem)'
