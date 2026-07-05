@@ -8,6 +8,8 @@ import {
   type BlumeEntryArea,
 } from '@/components/EntryModePicker';
 import { FitnessDashboard } from '@/components/FitnessDashboard';
+import { PushNotificationBanner } from '@/components/PushNotificationBanner';
+import { usePushNotifications } from '@/hooks/usePushNotifications';
 
 type Folder = {
   id: string;
@@ -22,6 +24,10 @@ type Todo = {
   text: string;
   folderId?: string;
   time?: string;
+  /** Push-Erinnerung aktiv */
+  reminderEnabled?: boolean;
+  /** Erinnerungszeit als HH:MM */
+  reminderTime?: string;
   date: string; // YYYY-MM-DD format — geplanter Tag
   completed: boolean;
   /** Wenn erledigt: Tag, an dem abgehakt (für Anzeige); fehlt bei alten Daten → Fallback `date` */
@@ -59,6 +65,8 @@ export default function Home() {
   const [newTodoText, setNewTodoText] = useState('');
   const [newTodoFolder, setNewTodoFolder] = useState('');
   const [newTodoTime, setNewTodoTime] = useState('');
+  const [newTodoReminderEnabled, setNewTodoReminderEnabled] = useState(false);
+  const [newTodoReminderTime, setNewTodoReminderTime] = useState('');
   const [newTodoRepeating, setNewTodoRepeating] = useState<'' | Repeating>('');
   const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
   const [showDeleteTodoModal, setShowDeleteTodoModal] = useState(false);
@@ -127,6 +135,8 @@ export default function Home() {
     }
   }, [todos]);
 
+  const push = usePushNotifications(todos);
+
   const getWeekdayIndexForDate = (date: Date) => {
     const day = date.getDay();
     return day === 0 ? 6 : day - 1;
@@ -142,6 +152,18 @@ export default function Home() {
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+  };
+
+  const formatTodoTimeDisplay = (hhmm: string) => {
+    const [h, m] = hhmm.split(':');
+    if (!m || m === '00') return `${Number(h)} Uhr`;
+    return `${h}:${m} Uhr`;
+  };
+
+  const formatReminderTimeDisplay = (hhmm: string) => {
+    const [h, m] = hhmm.split(':');
+    if (!m || m === '00') return `${Number(h)} Uhr`;
+    return `${h}:${m}`;
   };
 
   /** Kalenderwoche Montag–Sonntag (deutsch) */
@@ -341,13 +363,19 @@ export default function Home() {
     setEditingTodo(todo);
     setNewTodoText(todo.text);
     setNewTodoFolder(todo.folderId ?? '');
-    // Convert "18 Uhr" to "18:00" for time input
     if (todo.time) {
-      const match = todo.time.match(/(\d+)/);
-      setNewTodoTime(match ? `${String(match[1]).padStart(2, '0')}:00` : '');
+      const colon = todo.time.match(/^(\d{1,2}):(\d{2})/);
+      if (colon) {
+        setNewTodoTime(`${colon[1].padStart(2, '0')}:${colon[2]}`);
+      } else {
+        const match = todo.time.match(/(\d+)/);
+        setNewTodoTime(match ? `${String(match[1]).padStart(2, '0')}:00` : '');
+      }
     } else {
       setNewTodoTime('');
     }
+    setNewTodoReminderEnabled(todo.reminderEnabled ?? false);
+    setNewTodoReminderTime(todo.reminderTime ?? '');
     setAddTodoStep(4);
     setShowAddTodoModal(true);
     setTodoSwipeOffsets(prev => ({ ...prev, [todo.id]: 0 }));
@@ -511,7 +539,10 @@ export default function Home() {
   const addTodo = () => {
     if (!newTodoText.trim()) return;
 
-    const timeDisplay = newTodoTime ? newTodoTime.split(':')[0] + ' Uhr' : undefined;
+    const timeDisplay = newTodoTime ? formatTodoTimeDisplay(newTodoTime) : undefined;
+    const reminderEnabled = newTodoReminderEnabled;
+    const reminderTime =
+      reminderEnabled && newTodoReminderTime ? newTodoReminderTime : undefined;
     const folderId = newTodoFolder || undefined;
 
     if (editingTodo) {
@@ -520,6 +551,8 @@ export default function Home() {
         text: newTodoText.trim(),
         folderId,
         time: timeDisplay,
+        reminderEnabled,
+        reminderTime,
       };
       setTodos(todos.map(todo => todo.id === editingTodo.id ? updatedTodo : todo));
       setEditingTodo(null);
@@ -535,6 +568,8 @@ export default function Home() {
           text: newTodoText.trim(),
           folderId,
           time: timeDisplay,
+          reminderEnabled,
+          reminderTime,
           date: formatDateString(d),
           completed: false,
           seriesId,
@@ -547,6 +582,8 @@ export default function Home() {
           text: newTodoText.trim(),
           folderId,
           time: timeDisplay,
+          reminderEnabled,
+          reminderTime,
           date: formatDateString(dateToUse),
           completed: false,
         };
@@ -557,6 +594,8 @@ export default function Home() {
     setNewTodoText('');
     setNewTodoFolder('');
     setNewTodoTime('');
+    setNewTodoReminderEnabled(false);
+    setNewTodoReminderTime('');
     setNewTodoRepeating('');
     setAddTodoStep(1);
     setShowAddTodoModal(false);
@@ -896,7 +935,12 @@ export default function Home() {
           <div id={`todo-content-${todo.id}`} className="flex-1 min-w-0">
             {todo.time && (
               <span id={`todo-time-${todo.id}`} className={`text-xs text-[#7D7D7D] block ${todo.completed ? 'line-through opacity-60' : ''}`}>
-                {todo.time.includes(':') ? todo.time.split(':')[0] + ' Uhr' : todo.time}
+                {todo.time}
+              </span>
+            )}
+            {todo.reminderEnabled && todo.reminderTime && (
+              <span id={`todo-reminder-${todo.id}`} className={`text-xs text-[#7D7D7D] block ${todo.completed ? 'line-through opacity-60' : ''}`}>
+                Erinnerung {formatReminderTimeDisplay(todo.reminderTime)} Uhr
               </span>
             )}
             <span id={`todo-text-${todo.id}`} className={`text-[#222222] block ${todo.completed ? 'line-through opacity-60' : ''}`}>
@@ -1051,6 +1095,18 @@ export default function Home() {
   return (
     <main id="main-container" className="min-h-screen bg-[#F0F0F0] py-6">
       <div id="app-wrapper" className="max-w-md md:max-w-lg lg:max-w-xl xl:max-w-2xl 2xl:max-w-5xl mx-auto px-4 md:px-6 lg:px-8 xl:px-12 2xl:px-16">
+        <PushNotificationBanner
+          status={push.status}
+          isSubscribed={push.isSubscribed}
+          error={push.error}
+          onSubscribe={() => {
+            void push.subscribe();
+          }}
+          onUnsubscribe={() => {
+            void push.unsubscribe();
+          }}
+          canUsePush={push.canUsePush}
+        />
         {/* Header */}
         <div id="header-section" className="text-center mb-[clamp(1.5rem,4vw,4.5rem)]">
           {currentView === 'dashboard' || currentView === 'chosen-day' ? (
@@ -1354,6 +1410,8 @@ export default function Home() {
                   setNewTodoText('');
                   setNewTodoFolder('');
                   setNewTodoTime('');
+                  setNewTodoReminderEnabled(false);
+                  setNewTodoReminderTime('');
                   setNewTodoRepeating('');
                   setEditingTodo(null);
                   setShowAddTodoModal(true);
@@ -1754,7 +1812,7 @@ export default function Home() {
                         )}
                       </div>
                       <h2 id="add-todo-modal-title" className="text-xl font-bold text-[#222222] text-center mb-6">
-                        {editingTodo ? 'Aufgabe bearbeiten' : 'Zeit'}
+                        {editingTodo ? 'Aufgabe bearbeiten' : 'Zeit & Erinnerung'}
                       </h2>
                       <div className="space-y-5">
                         {editingTodo && (
@@ -1830,7 +1888,7 @@ export default function Home() {
                           </>
                         )}
                         <div id="todo-time-field" className="w-full min-w-0 max-w-full">
-                          <label id="todo-time-label" className="block text-sm font-medium text-[#7D7D7D] mb-2">Zeit (optional)</label>
+                          <label id="todo-time-label" className="block text-sm font-medium text-[#7D7D7D] mb-2">Zeit anzeigen (optional)</label>
                           <div className="flex w-full min-w-0 justify-center sm:justify-start">
                             <input
                               id="todo-time-input"
@@ -1841,6 +1899,49 @@ export default function Home() {
                             />
                           </div>
                         </div>
+                        <div id="todo-reminder-field" className="w-full min-w-0 max-w-full">
+                          <label id="todo-reminder-label" className="block text-sm font-medium text-[#7D7D7D] mb-2">Erinnerung</label>
+                          <div className="grid grid-cols-2 gap-2 mb-3">
+                            <button
+                              type="button"
+                              id="reminder-option-none"
+                              onClick={() => {
+                                setNewTodoReminderEnabled(false);
+                                setNewTodoReminderTime('');
+                              }}
+                              className={`min-h-[3.25rem] px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all ${
+                                !newTodoReminderEnabled
+                                  ? 'border-[#222222] bg-gray-50 text-[#222222]'
+                                  : 'border-gray-200 text-[#7D7D7D] hover:border-gray-300'
+                              }`}
+                            >
+                              Keine
+                            </button>
+                            <button
+                              type="button"
+                              id="reminder-option-yes"
+                              onClick={() => setNewTodoReminderEnabled(true)}
+                              className={`min-h-[3.25rem] px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all ${
+                                newTodoReminderEnabled
+                                  ? 'border-[#222222] bg-gray-50 text-[#222222]'
+                                  : 'border-gray-200 text-[#7D7D7D] hover:border-gray-300'
+                              }`}
+                            >
+                              Ja, erinnern
+                            </button>
+                          </div>
+                          {newTodoReminderEnabled && (
+                            <div className="flex w-full min-w-0 justify-center sm:justify-start">
+                              <input
+                                id="todo-reminder-time-input"
+                                type="time"
+                                value={newTodoReminderTime || ''}
+                                onChange={(e) => setNewTodoReminderTime(e.target.value || '')}
+                                className="box-border min-w-0 w-full max-w-[min(100%,10.5rem)] sm:max-w-none text-base px-3 py-3 sm:px-4 border-2 border-gray-200 rounded-xl text-[#222222] focus:border-[#222222] focus:outline-none transition-colors"
+                              />
+                            </div>
+                          )}
+                        </div>
                         <div id="add-todo-actions" className="flex gap-3 pt-2">
                           <button
                             id="cancel-todo-btn"
@@ -1849,6 +1950,8 @@ export default function Home() {
                               setNewTodoText('');
                               setNewTodoFolder('');
                               setNewTodoTime('');
+                              setNewTodoReminderEnabled(false);
+                              setNewTodoReminderTime('');
                               setNewTodoRepeating('');
                               setEditingTodo(null);
                               setAddTodoStep(1);
@@ -1860,7 +1963,10 @@ export default function Home() {
                           <button
                             id="save-todo-btn"
                             onClick={addTodo}
-                            disabled={!newTodoText.trim()}
+                            disabled={
+                              !newTodoText.trim() ||
+                              (newTodoReminderEnabled && !newTodoReminderTime)
+                            }
                             className="flex-1 px-4 py-3 bg-[#222222] text-white rounded-xl hover:bg-[#333333] transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             {editingTodo ? 'Speichern' : 'Set'}
