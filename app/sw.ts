@@ -33,7 +33,7 @@ self.addEventListener("push", (event) => {
     : {};
 
   event.waitUntil(
-    self.registration.showNotification(payload.title ?? "Blumè.", {
+    self.registration.showNotification(payload.title ?? "David von Blume", {
       body: payload.body ?? "Du hast eine Erinnerung.",
       icon: "/icons/icon-192.png",
       badge: "/icons/icon-192.png",

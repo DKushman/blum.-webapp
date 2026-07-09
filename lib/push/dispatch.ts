@@ -23,7 +23,7 @@ export async function dispatchReminder(
   if (!subscription) return false;
 
   await sendPushNotification(subscription, {
-    title: "Blumè.",
+    title: "David von Blume",
     body: reminder.text,
     url: "/",
   });

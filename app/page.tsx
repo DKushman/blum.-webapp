@@ -10,7 +10,6 @@ import {
 import { FitnessDashboard } from '@/components/FitnessDashboard';
 import { PushNotificationBanner } from '@/components/PushNotificationBanner';
 import { TodoFolderGroup } from '@/components/TodoFolderGroup';
-import { TodoStrikeTitle, type TodoStrikeState } from '@/components/TodoStrikeTitle';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
 import {
   REMINDER_OFFSET_OPTIONS,
@@ -100,7 +99,6 @@ export default function Home() {
 
   const [openFolderKeys, setOpenFolderKeys] = useState<Record<string, boolean>>({});
   const [entryArea, setEntryArea] = useState<EntryRoute>('hydrating');
-  const [strikingTodoIds, setStrikingTodoIds] = useState<Record<string, boolean>>({});
 
   // Load folders from localStorage on mount
   const [folders, setFolders] = useState<Folder[]>(() => {
@@ -324,28 +322,17 @@ export default function Home() {
       return;
     }
 
-    setStrikingTodoIds((prev) => ({ ...prev, [todoId]: true }));
-    window.setTimeout(() => {
-      const todayStr = formatDateString(new Date());
-      setTodos((prev) =>
-        prev.map((item) =>
-          item.id === todoId
-            ? { ...item, completed: true, completedOn: todayStr }
-            : item
-        )
-      );
-      setStrikingTodoIds((prev) => {
-        const next = { ...prev };
-        delete next[todoId];
-        return next;
-      });
-    }, 900);
-  };
+    const completedDay =
+      currentView === 'chosen-day' ? chosenDayFromCalendar : selectedDay;
+    const completedDayStr = formatDateString(completedDay);
 
-  const getTodoStrikeState = (todo: Todo): TodoStrikeState => {
-    if (strikingTodoIds[todo.id]) return 'striking';
-    if (todo.completed) return 'struck';
-    return 'idle';
+    setTodos((prev) =>
+      prev.map((item) =>
+        item.id === todoId
+          ? { ...item, completed: true, completedOn: completedDayStr }
+          : item
+      )
+    );
   };
 
   const deleteTodo = (todoId: string) => {
@@ -652,7 +639,7 @@ export default function Home() {
     const dx = e.clientX - swipe.startX;
     const dy = e.clientY - swipe.startY;
     if (Math.abs(dx) < DAY_SWIPE_THRESHOLD_PX || Math.abs(dx) <= Math.abs(dy)) return;
-    navigateDisplayDay(dx > 0 ? 1 : -1);
+    navigateDisplayDay(dx < 0 ? 1 : -1);
   };
 
   const handleDaySwipePointerCancel = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -806,11 +793,12 @@ export default function Home() {
                 {todo.time}
               </span>
             )}
-            <TodoStrikeTitle
+            <span
               id={`todo-text-${todo.id}`}
-              text={todo.text}
-              strikeState={getTodoStrikeState(todo)}
-            />
+              className={`block text-[#222222] ${todo.completed ? 'line-through opacity-55' : ''}`}
+            >
+              {todo.text}
+            </span>
             {isOverdueTask && (
               <span
                 id={`todo-overdue-date-${todo.id}`}
