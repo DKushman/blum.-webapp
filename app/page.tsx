@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useLayoutEffect, useRef, Fragment, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, Fragment, useMemo, useCallback } from 'react';
 import {
   BLUME_ENTRY_AREA_KEY,
   EntryModePicker,
@@ -65,7 +65,6 @@ export default function Home() {
   const [addTodoStep, setAddTodoStep] = useState<1 | 2 | 3 | 4>(1);
   const [showAddTodoModal, setShowAddTodoModal] = useState(false);
   const [showMonthPicker, setShowMonthPicker] = useState(false);
-  const [isTransitioning, setIsTransitioning] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [newFolderColor, setNewFolderColor] = useState('#FFB6C1');
   const [newTodoText, setNewTodoText] = useState('');
@@ -85,31 +84,18 @@ export default function Home() {
   const [datePickForTodoId, setDatePickForTodoId] = useState<string | null>(null); // Beim Bearbeiten: Tag auswählen zum Verschieben
 
   const SWIPE_ACTION_WIDTH = 140;
-  const WEEK_PAN_TOUCH_THRESHOLD_PX = 8;
-  const WEEK_PAN_MOUSE_THRESHOLD_PX = 8;
+  const DAY_SWIPE_THRESHOLD_PX = 48;
 
-  // Ref for document-level mouse drag (so drag works when cursor leaves the row)
   const mouseDragRef = useRef<{ todoId: string; startX: number; offset: number } | null>(null);
   const didMouseDragRef = useRef(false);
-  const weekViewportRef = useRef<HTMLDivElement>(null);
-  const weekColWRef = useRef(0);
-  const weekTranslateXRef = useRef(0);
-  const weekGestureRef = useRef<{
+  const daySwipeRef = useRef<{
     pointerId: number | null;
-    pointerType: string;
     startX: number;
     startY: number;
-    startTranslate: number;
-    dragging: boolean;
-  }>({ pointerId: null, pointerType: 'touch', startX: 0, startY: 0, startTranslate: 0, dragging: false });
-  const weekPendingCommitRef = useRef<'next' | 'prev' | null>(null);
-  const weekCarouselDidDragRef = useRef(false);
+    tracking: boolean;
+  }>({ pointerId: null, startX: 0, startY: 0, tracking: false });
 
   const [openFolderKeys, setOpenFolderKeys] = useState<Record<string, boolean>>({});
-  const [weekColW, setWeekColW] = useState(0);
-  const [weekTranslateX, setWeekTranslateX] = useState(0);
-  const [weekStripTransition, setWeekStripTransition] = useState(true);
-  const [weekCarouselDragging, setWeekCarouselDragging] = useState(false);
   const [entryArea, setEntryArea] = useState<EntryRoute>('hydrating');
   const [strikingTodoIds, setStrikingTodoIds] = useState<Record<string, boolean>>({});
 
@@ -147,15 +133,11 @@ export default function Home() {
 
   const push = usePushNotifications(todos);
 
-  const getWeekdayIndexForDate = (date: Date) => {
-    const day = date.getDay();
-    return day === 0 ? 6 : day - 1;
-  };
-
-  const getCurrentWeekdayIndex = () => {
-    const dayToUse = currentView === 'chosen-day' ? chosenDayFromCalendar : selectedDay;
-    return getWeekdayIndexForDate(dayToUse);
-  };
+  const foldersById = useMemo(() => {
+    const map = new Map<string, Folder>();
+    for (const folder of folders) map.set(folder.id, folder);
+    return map;
+  }, [folders]);
 
   const formatDateString = (date: Date) => {
     const year = date.getFullYear();
@@ -200,13 +182,6 @@ export default function Home() {
       return `${monday.getDate()}. ${months[monday.getMonth()]} – ${sunday.getDate()}. ${months[sunday.getMonth()]}`;
     }
     return `${monday.getDate()}. ${months[monday.getMonth()]} – ${sunday.getDate()}. ${months[sunday.getMonth()]}`;
-  };
-
-  const addDaysFlat = (date: Date, days: number) => {
-    const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    d.setHours(0, 0, 0, 0);
-    d.setDate(d.getDate() + days);
-    return d;
   };
 
   const getTodosForDay = (date: Date) => {
@@ -267,12 +242,12 @@ export default function Home() {
 
   const getFolderColor = (folderId?: string) => {
     if (!folderId) return '#D3D3D3';
-    return folders.find(f => f.id === folderId)?.color || '#D3D3D3';
+    return foldersById.get(folderId)?.color ?? '#D3D3D3';
   };
 
   const getFolderName = (folderId?: string) => {
     if (!folderId) return '—';
-    return folders.find(f => f.id === folderId)?.name || '—';
+    return foldersById.get(folderId)?.name ?? '—';
   };
 
   const isOverdue = (todo: Todo) => {
@@ -490,14 +465,6 @@ export default function Home() {
   }, [swipeTodoId]);
 
   useEffect(() => {
-    weekColWRef.current = weekColW;
-  }, [weekColW]);
-
-  useEffect(() => {
-    weekTranslateXRef.current = weekTranslateX;
-  }, [weekTranslateX]);
-
-  useEffect(() => {
     setOpenFolderKeys({});
   }, [
     currentView,
@@ -514,25 +481,6 @@ export default function Home() {
       setEntryArea('picker');
     }
   }, []);
-
-  useLayoutEffect(() => {
-    if (currentView === 'monthly') return;
-    const el = weekViewportRef.current;
-    if (!el) return;
-    const applyWidth = (w: number) => {
-      if (w <= 0) return;
-      weekColWRef.current = w;
-      setWeekColW(w);
-      if (!weekGestureRef.current.dragging) {
-        setWeekTranslateX(-w);
-        weekTranslateXRef.current = -w;
-      }
-    };
-    const ro = new ResizeObserver(() => applyWidth(el.clientWidth));
-    ro.observe(el);
-    applyWidth(el.clientWidth);
-    return () => ro.disconnect();
-  }, [currentView, selectedDay.getTime(), chosenDayFromCalendar.getTime()]);
 
   // On mobile: prevent default touch behavior when user is swiping horizontally (so page doesn't scroll)
   const handleTouchMove = (e: React.TouchEvent, todoId: string) => {
@@ -672,207 +620,54 @@ export default function Home() {
     setEditingTodo(null); // Modal ist zu, State aufräumen
   };
 
-  const applyWeekDragFromClientX = useCallback((clientX: number) => {
-    const g = weekGestureRef.current;
-    if (!g.dragging) return;
-    const w = weekColWRef.current;
-    if (w <= 0) return;
-    const nx = Math.min(0, Math.max(-2 * w, g.startTranslate + (clientX - g.startX)));
-    setWeekTranslateX(nx);
-  }, []);
-
-  const updateWeekDragGesture = useCallback((clientX: number, clientY: number, pointerType = 'touch') => {
-    const g = weekGestureRef.current;
-    if (g.pointerId === null) return;
-    const dx = clientX - g.startX;
-    const dy = clientY - g.startY;
-    if (!g.dragging) {
-      const threshold =
-        pointerType === 'touch' ? WEEK_PAN_TOUCH_THRESHOLD_PX : WEEK_PAN_MOUSE_THRESHOLD_PX;
-      if (Math.abs(dx) < threshold) return;
-      if (Math.abs(dx) <= Math.abs(dy)) return;
-      g.dragging = true;
-      weekCarouselDidDragRef.current = true;
-      setWeekCarouselDragging(true);
-      setWeekStripTransition(false);
-    }
-    applyWeekDragFromClientX(clientX);
-  }, [applyWeekDragFromClientX]);
-
-  const finishWeekGesture = useCallback((endClientX: number) => {
-    const g = weekGestureRef.current;
-    if (!g.dragging) {
-      weekCarouselDidDragRef.current = false;
-      setWeekCarouselDragging(false);
-      return;
-    }
-    g.dragging = false;
-    setWeekCarouselDragging(false);
-    const w = weekColWRef.current;
-    if (w <= 0) return;
-    const finalT = Math.min(0, Math.max(-2 * w, g.startTranslate + (endClientX - g.startX)));
-    const settled = -w;
-    const threshold = w * 0.2;
-    if (finalT < settled - threshold) {
-      weekPendingCommitRef.current = 'next';
-      setWeekStripTransition(true);
-      setWeekTranslateX(-2 * w);
-      weekTranslateXRef.current = -2 * w;
-    } else if (finalT > settled + threshold) {
-      weekPendingCommitRef.current = 'prev';
-      setWeekStripTransition(true);
-      setWeekTranslateX(0);
-      weekTranslateXRef.current = 0;
-    } else {
-      setWeekStripTransition(true);
-      setWeekTranslateX(settled);
-      weekTranslateXRef.current = settled;
-    }
-  }, []);
-
-  const releaseWeekPointer = useCallback((pointerId: number) => {
-    const g = weekGestureRef.current;
-    if (g.pointerId !== pointerId) return;
-    g.pointerId = null;
-    g.dragging = false;
-    setWeekCarouselDragging(false);
-  }, []);
-
-  const applyDisplayWeekDelta = (deltaWeeks: number) => {
-    const delta = deltaWeeks * 7;
+  const navigateDisplayDay = useCallback((deltaDays: number) => {
+    const shift = (d: Date) => {
+      const next = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      next.setDate(next.getDate() + deltaDays);
+      return next;
+    };
     if (currentView === 'chosen-day') {
-      setChosenDayFromCalendar((d) => {
-        const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-        x.setDate(x.getDate() + delta);
-        return x;
-      });
-      setSelectedDay((d) => {
-        const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-        x.setDate(x.getDate() + delta);
-        return x;
-      });
+      setChosenDayFromCalendar(shift);
+      setSelectedDay(shift);
     } else {
-      setSelectedDay((d) => {
-        const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-        x.setDate(x.getDate() + delta);
-        return x;
-      });
+      setSelectedDay(shift);
     }
-    setIsTransitioning(true);
-    setTimeout(() => setIsTransitioning(false), 300);
+  }, [currentView]);
+
+  const isDaySwipeIgnoredTarget = (target: EventTarget | null) => {
+    if (!(target instanceof Element)) return true;
+    return Boolean(
+      target.closest('[data-todo-row], [data-no-day-swipe], button, a, input, textarea, select, label')
+    );
   };
 
-  const onWeekStripTransitionEnd = (e: React.TransitionEvent) => {
-    if (e.propertyName !== 'transform') return;
-    const pending = weekPendingCommitRef.current;
-    if (!pending) return;
-    weekPendingCommitRef.current = null;
-    const w = weekColWRef.current;
-    if (pending === 'next') applyDisplayWeekDelta(1);
-    else applyDisplayWeekDelta(-1);
-    setWeekStripTransition(false);
-    if (w > 0) {
-      setWeekTranslateX(-w);
-      weekTranslateXRef.current = -w;
-    }
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => setWeekStripTransition(true));
-    });
-  };
-
-  const handleWeekPointerDownCapture = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (weekColWRef.current <= 0) return;
+  const handleDaySwipePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
-    weekCarouselDidDragRef.current = false;
-    weekGestureRef.current = {
+    if (isDaySwipeIgnoredTarget(e.target)) return;
+    daySwipeRef.current = {
       pointerId: e.pointerId,
-      pointerType: e.pointerType,
       startX: e.clientX,
       startY: e.clientY,
-      startTranslate: weekTranslateXRef.current,
-      dragging: false,
+      tracking: true,
     };
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {
-      /* ignore */
-    }
   };
 
-  const handleWeekPointerUpCapture = (e: React.PointerEvent<HTMLDivElement>) => {
-    const g = weekGestureRef.current;
-    if (g.pointerId !== e.pointerId) return;
-    if (weekPendingCommitRef.current) {
-      releaseWeekPointer(e.pointerId);
-      try {
-        if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-          e.currentTarget.releasePointerCapture(e.pointerId);
-        }
-      } catch {
-        /* ignore */
-      }
-      return;
-    }
-    if (g.dragging) {
-      finishWeekGesture(e.clientX);
-    } else {
-      weekCarouselDidDragRef.current = false;
-    }
-    releaseWeekPointer(e.pointerId);
-    try {
-      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-        e.currentTarget.releasePointerCapture(e.pointerId);
-      }
-    } catch {
-      /* ignore */
-    }
+  const handleDaySwipePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const swipe = daySwipeRef.current;
+    if (!swipe.tracking || swipe.pointerId !== e.pointerId) return;
+    swipe.tracking = false;
+    swipe.pointerId = null;
+    const dx = e.clientX - swipe.startX;
+    const dy = e.clientY - swipe.startY;
+    if (Math.abs(dx) < DAY_SWIPE_THRESHOLD_PX || Math.abs(dx) <= Math.abs(dy)) return;
+    navigateDisplayDay(dx < 0 ? 1 : -1);
   };
 
-  const handleWeekPointerCancelCapture = (e: React.PointerEvent<HTMLDivElement>) => {
-    const g = weekGestureRef.current;
-    if (g.pointerId !== e.pointerId) return;
-    weekCarouselDidDragRef.current = false;
-    releaseWeekPointer(e.pointerId);
-    const w = weekColWRef.current;
-    if (w > 0) {
-      setWeekStripTransition(true);
-      setWeekTranslateX(-w);
-      weekTranslateXRef.current = -w;
-    }
-    try {
-      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-        e.currentTarget.releasePointerCapture(e.pointerId);
-      }
-    } catch {
-      /* ignore */
-    }
-  };
-
-  useEffect(() => {
-    const onDocPointerMove = (e: PointerEvent) => {
-      const g = weekGestureRef.current;
-      if (g.pointerId === null || e.pointerId !== g.pointerId) return;
-      updateWeekDragGesture(e.clientX, e.clientY, g.pointerType);
-      if (g.dragging) e.preventDefault();
-    };
-    document.addEventListener('pointermove', onDocPointerMove, { passive: false });
-    return () => {
-      document.removeEventListener('pointermove', onDocPointerMove);
-    };
-  }, [updateWeekDragGesture]);
-
-  const handleWeekdayPickForAnchor = (anchorDate: Date, dayIndex: number) => {
-    if (weekCarouselDidDragRef.current) {
-      weekCarouselDidDragRef.current = false;
-      return;
-    }
-    setIsTransitioning(true);
-    const anchorIdx = getWeekdayIndexForDate(anchorDate);
-    const newDate = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), anchorDate.getDate());
-    newDate.setDate(anchorDate.getDate() + (dayIndex - anchorIdx));
-    setSelectedDay(newDate);
-    if (currentView === 'chosen-day') setChosenDayFromCalendar(newDate);
-    setTimeout(() => setIsTransitioning(false), 400);
+  const handleDaySwipePointerCancel = (e: React.PointerEvent<HTMLDivElement>) => {
+    const swipe = daySwipeRef.current;
+    if (swipe.pointerId !== e.pointerId) return;
+    swipe.tracking = false;
+    swipe.pointerId = null;
   };
 
   const navigateMonth = (direction: 'prev' | 'next') => {
@@ -888,30 +683,39 @@ export default function Home() {
   // Use chosenDayFromCalendar for view 3, selectedDay for dashboard
   const displayDay = currentView === 'chosen-day' ? chosenDayFromCalendar : selectedDay;
   const displayDayKey = formatDateString(displayDay);
-  const weekCarouselAnchors = useMemo(() => {
-    const b = new Date(displayDay.getFullYear(), displayDay.getMonth(), displayDay.getDate());
-    b.setHours(0, 0, 0, 0);
-    return [addDaysFlat(b, -7), b, addDaysFlat(b, 7)];
-  }, [displayDayKey]);
+  const displayWeekRange = useMemo(() => formatWeekRangeLine(displayDay), [displayDayKey]);
 
-  const currentTodos = getTodosForDay(displayDay);
-  const monthTodos = getTodosForMonth(currentMonth);
-  const daysInMonth = getDaysInMonth(currentMonth);
+  const currentTodos = useMemo(
+    () => getTodosForDay(displayDay),
+    [todos, displayDayKey, selectedFolderFilters]
+  );
 
-  const folderKeyOrder: string[] = [];
-  const todosByFolder = new Map<string, Todo[]>();
-  for (const todo of currentTodos) {
-    const key = todo.folderId ?? '';
-    if (!todosByFolder.has(key)) {
-      todosByFolder.set(key, []);
-      folderKeyOrder.push(key);
+  const monthTodos = useMemo(
+    () => getTodosForMonth(currentMonth),
+    [todos, currentMonth.getFullYear(), currentMonth.getMonth()]
+  );
+
+  const daysInMonth = useMemo(
+    () => getDaysInMonth(currentMonth),
+    [currentMonth.getFullYear(), currentMonth.getMonth()]
+  );
+
+  const todoFolderGroups = useMemo(() => {
+    const folderKeyOrder: string[] = [];
+    const todosByFolder = new Map<string, Todo[]>();
+    for (const todo of currentTodos) {
+      const key = todo.folderId ?? '';
+      if (!todosByFolder.has(key)) {
+        todosByFolder.set(key, []);
+        folderKeyOrder.push(key);
+      }
+      todosByFolder.get(key)!.push(todo);
     }
-    todosByFolder.get(key)!.push(todo);
-  }
-  const todoFolderGroups = folderKeyOrder.map((folderId) => ({
-    folderId,
-    todos: todosByFolder.get(folderId)!,
-  }));
+    return folderKeyOrder.map((folderId) => ({
+      folderId,
+      todos: todosByFolder.get(folderId)!,
+    }));
+  }, [currentTodos]);
 
   let todoListAnimIndex = 0;
   const renderTodoRow = (todo: Todo, animIndex?: number) => {
@@ -925,6 +729,7 @@ export default function Home() {
       <div
         key={`${formatDateString(displayDay)}-${todo.id}`}
         id={`todo-item-wrapper-${todo.id}`}
+        data-todo-row
         className="rounded-lg overflow-hidden relative"
         style={{
           animation: `slideUpFromBottom 0.4s cubic-bezier(0.4, 0, 0.2, 1) ${index * 0.05}s both`,
@@ -1178,7 +983,7 @@ export default function Home() {
         {/* Header */}
         <div id="header-section" className="text-center mb-[clamp(1.5rem,4vw,4.5rem)]">
           {currentView === 'dashboard' || currentView === 'chosen-day' ? (
-            <div className="relative mb-2 flex items-center justify-center">
+            <div className="relative mb-2 flex items-center justify-center pb-6 md:pb-7">
               <button
                 type="button"
                 id="entry-area-switch-btn"
@@ -1196,6 +1001,12 @@ export default function Home() {
               <h1 id="brand-logo" className="text-[clamp(1.5rem,4vw,4.5rem)] font-bold text-[#222222]">
                 Blumè.
               </h1>
+              <p
+                id="week-range-label"
+                className="absolute -bottom-5 left-0 right-0 text-center text-[clamp(0.75rem,1.6vw,0.875rem)] font-medium tracking-tight text-[#7D7D7D] md:-bottom-6"
+              >
+                {displayWeekRange}
+              </p>
             </div>
           ) : (
             <div id="month-header" className="flex items-center justify-between mb-2 relative">
@@ -1271,131 +1082,15 @@ export default function Home() {
 
         {/* Dashboard View and Chosen Day View */}
         {(currentView === 'dashboard' || currentView === 'chosen-day') && (
-          <div id="dashboard-view" className="space-y-[clamp(1rem,3vw,3rem)]" key={currentView}>
-            {/* Weekday Navigation — 3-Spalten-Karussell */}
-            <div id="weekday-navigation-wrapper" className="relative select-none">
-              <div
-                ref={weekViewportRef}
-                id="weekday-navigation-viewport"
-                className="overflow-hidden w-full cursor-grab active:cursor-grabbing select-none"
-                style={{ touchAction: 'none' }}
-                onPointerDownCapture={handleWeekPointerDownCapture}
-                onPointerUpCapture={handleWeekPointerUpCapture}
-                onPointerCancelCapture={handleWeekPointerCancelCapture}
-              >
-                <div
-                  id="weekday-navigation-track"
-                  className="flex flex-row will-change-transform"
-                  style={
-                    weekColW > 0
-                      ? {
-                          width: weekColW * 3,
-                          transform: `translateX(${weekTranslateX}px)`,
-                          transition: weekStripTransition
-                            ? 'transform 0.38s cubic-bezier(0.22, 1, 0.36, 1)'
-                            : 'none',
-                        }
-                      : {
-                          width: '300%',
-                          transform: 'translateX(calc(-100% / 3))',
-                          transition: 'none',
-                        }
-                  }
-                  onTransitionEnd={onWeekStripTransitionEnd}
-                >
-                  {weekCarouselAnchors.map((anchorDate, colIdx) => {
-                    const focusIdx = getWeekdayIndexForDate(displayDay);
-                    return (
-                      <div
-                        key={`week-col-${colIdx}-${formatDateString(anchorDate)}`}
-                        className="flex flex-col shrink-0 box-border"
-                        style={{
-                          width: weekColW > 0 ? weekColW : '33.333333%',
-                        }}
-                      >
-                        <p
-                          id={colIdx === 1 ? 'week-range-label' : undefined}
-                          className="text-center text-[clamp(0.7rem,1.6vw,0.875rem)] text-[#7D7D7D] mb-2 font-medium tracking-tight"
-                        >
-                          {formatWeekRangeLine(anchorDate)}
-                        </p>
-                        <div className="flex gap-[clamp(0.25rem,1vw,0.75rem)] w-full">
-                          {weekdays.map((day, index) => {
-                            const anchorIdx = getWeekdayIndexForDate(anchorDate);
-                            const cellDate = new Date(
-                              anchorDate.getFullYear(),
-                              anchorDate.getMonth(),
-                              anchorDate.getDate()
-                            );
-                            cellDate.setDate(anchorDate.getDate() + (index - anchorIdx));
-                            cellDate.setHours(0, 0, 0, 0);
-                            const isSelected = formatDateString(cellDate) === displayDayKey;
-                            const distance = Math.abs(index - focusIdx);
-                            const today = new Date();
-                            today.setHours(0, 0, 0, 0);
-                            const isToday = cellDate.getTime() === today.getTime();
-
-                            let bgColor = '';
-                            let textColor = '';
-                            if (isSelected) {
-                              bgColor = 'bg-[#222222]';
-                              textColor = 'text-white';
-                            } else if (distance === 1) {
-                              bgColor = 'bg-[#D3D3D3]';
-                              textColor = 'text-[#7D7D7D]';
-                            } else if (distance === 2) {
-                              bgColor = 'bg-[#E8E8E8]';
-                              textColor = 'text-[#7D7D7D]';
-                            } else if (distance === 3) {
-                              bgColor = 'bg-[#F0F0F0]';
-                              textColor = 'text-[#7D7D7D]';
-                            } else {
-                              bgColor = 'bg-[#F5F5F5]';
-                              textColor = 'text-[#7D7D7D]';
-                            }
-
-                            return (
-                              <div
-                                key={`${colIdx}-${day}`}
-                                id={`weekday-wrapper-${colIdx}-${index}`}
-                                className="flex-1 relative min-w-0"
-                              >
-                                {isToday && (
-                                  <span
-                                    id={`today-label-${colIdx}-${index}`}
-                                    className="absolute -top-4 md:-top-5 lg:-top-6 left-1/2 transform -translate-x-1/2 text-[10px] md:text-xs lg:text-sm text-[#7D7D7D] whitespace-nowrap"
-                                  >
-                                    Heute
-                                  </span>
-                                )}
-                                <button
-                                  type="button"
-                                  id={`weekday-btn-${colIdx}-${index}`}
-                                  onClick={() => handleWeekdayPickForAnchor(anchorDate, index)}
-                                  className={`relative z-10 w-full py-[clamp(0.75rem,2vw,2.5rem)] px-[clamp(0.25rem,1vw,1rem)] rounded-lg transition-all duration-300 ${bgColor} ${textColor} min-w-0 select-none ${
-                                    weekCarouselDragging ? 'pointer-events-none' : 'touch-manipulation'
-                                  }`}
-                                >
-                                  <span
-                                    id={`weekday-text-${colIdx}-${index}`}
-                                    className="text-[clamp(0.5rem,1vw,0.875rem)] font-medium truncate block"
-                                  >
-                                    {day}
-                                  </span>
-                                </button>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-
+          <div
+            id="dashboard-view"
+            className="space-y-[clamp(1rem,3vw,3rem)] touch-pan-y"
+            onPointerDown={handleDaySwipePointerDown}
+            onPointerUp={handleDaySwipePointerUp}
+            onPointerCancel={handleDaySwipePointerCancel}
+          >
             {/* Action Grid */}
-            <div id="action-grid" className="grid grid-cols-3 gap-2 md:gap-3 lg:gap-4 xl:gap-6 2xl:gap-8">
+            <div id="action-grid" data-no-day-swipe className="grid grid-cols-3 gap-2 md:gap-3 lg:gap-4 xl:gap-6 2xl:gap-8">
               <button
                 id="folder-filter-btn"
                 onClick={() => {
@@ -1414,7 +1109,7 @@ export default function Home() {
                 />
               </button>
               
-              <div id="date-display" className="bg-white rounded-lg p-[clamp(1rem,2vw,3rem)] flex flex-col items-center justify-center">
+              <div id="date-display" className="bg-white rounded-lg p-[clamp(1rem,2vw,3rem)] flex flex-col items-center justify-center day-view-content" key={displayDayKey}>
                 <span id="day-number" className="text-[clamp(3rem,8vw,9rem)] font-bold text-[#222222] leading-none mb-0">
                   {formatDate(displayDay)}
                 </span>
@@ -2064,7 +1759,7 @@ export default function Home() {
               id="notes-list-container" 
               className="overflow-hidden relative"
             >
-              <div id="notes-list-inner" className="space-y-2">
+              <div id="notes-list-inner" key={displayDayKey} className="day-view-content space-y-2">
                 {todoListNodes}
               </div>
             </div>
@@ -2197,10 +1892,8 @@ export default function Home() {
             type="button"
             id="bottom-nav-todo"
             onClick={() => {
-              setIsTransitioning(true);
               setCurrentView('dashboard');
               setSelectedDay(new Date());
-              setTimeout(() => setIsTransitioning(false), 300);
             }}
             className={`flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#222222]/30 ${
               currentView === 'dashboard' || currentView === 'chosen-day'
@@ -2219,9 +1912,7 @@ export default function Home() {
             type="button"
             id="bottom-nav-calendar"
             onClick={() => {
-              setIsTransitioning(true);
               setCurrentView('monthly');
-              setTimeout(() => setIsTransitioning(false), 300);
             }}
             className={`flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#222222]/30 ${
               currentView === 'monthly'
