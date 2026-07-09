@@ -96,11 +96,12 @@ export default function Home() {
   const weekTranslateXRef = useRef(0);
   const weekGestureRef = useRef<{
     pointerId: number | null;
+    pointerType: string;
     startX: number;
     startY: number;
     startTranslate: number;
     dragging: boolean;
-  }>({ pointerId: null, startX: 0, startY: 0, startTranslate: 0, dragging: false });
+  }>({ pointerId: null, pointerType: 'touch', startX: 0, startY: 0, startTranslate: 0, dragging: false });
   const weekPendingCommitRef = useRef<'next' | 'prev' | null>(null);
   const weekCarouselDidDragRef = useRef(false);
 
@@ -108,6 +109,7 @@ export default function Home() {
   const [weekColW, setWeekColW] = useState(0);
   const [weekTranslateX, setWeekTranslateX] = useState(0);
   const [weekStripTransition, setWeekStripTransition] = useState(true);
+  const [weekCarouselDragging, setWeekCarouselDragging] = useState(false);
   const [entryArea, setEntryArea] = useState<EntryRoute>('hydrating');
   const [strikingTodoIds, setStrikingTodoIds] = useState<Record<string, boolean>>({});
 
@@ -679,24 +681,62 @@ export default function Home() {
     setWeekTranslateX(nx);
   }, []);
 
-  const updateWeekDragGesture = useCallback((clientX: number, clientY: number) => {
+  const updateWeekDragGesture = useCallback((clientX: number, clientY: number, pointerType = 'touch') => {
     const g = weekGestureRef.current;
     if (g.pointerId === null) return;
     const dx = clientX - g.startX;
     const dy = clientY - g.startY;
     if (!g.dragging) {
       const threshold =
-        typeof window !== 'undefined' && 'ontouchstart' in window
-          ? WEEK_PAN_TOUCH_THRESHOLD_PX
-          : WEEK_PAN_MOUSE_THRESHOLD_PX;
+        pointerType === 'touch' ? WEEK_PAN_TOUCH_THRESHOLD_PX : WEEK_PAN_MOUSE_THRESHOLD_PX;
       if (Math.abs(dx) < threshold) return;
       if (Math.abs(dx) <= Math.abs(dy)) return;
       g.dragging = true;
       weekCarouselDidDragRef.current = true;
+      setWeekCarouselDragging(true);
       setWeekStripTransition(false);
     }
     applyWeekDragFromClientX(clientX);
   }, [applyWeekDragFromClientX]);
+
+  const finishWeekGesture = useCallback((endClientX: number) => {
+    const g = weekGestureRef.current;
+    if (!g.dragging) {
+      weekCarouselDidDragRef.current = false;
+      setWeekCarouselDragging(false);
+      return;
+    }
+    g.dragging = false;
+    setWeekCarouselDragging(false);
+    const w = weekColWRef.current;
+    if (w <= 0) return;
+    const finalT = Math.min(0, Math.max(-2 * w, g.startTranslate + (endClientX - g.startX)));
+    const settled = -w;
+    const threshold = w * 0.2;
+    if (finalT < settled - threshold) {
+      weekPendingCommitRef.current = 'next';
+      setWeekStripTransition(true);
+      setWeekTranslateX(-2 * w);
+      weekTranslateXRef.current = -2 * w;
+    } else if (finalT > settled + threshold) {
+      weekPendingCommitRef.current = 'prev';
+      setWeekStripTransition(true);
+      setWeekTranslateX(0);
+      weekTranslateXRef.current = 0;
+    } else {
+      setWeekStripTransition(true);
+      setWeekTranslateX(settled);
+      weekTranslateXRef.current = settled;
+    }
+  }, []);
+
+  const releaseWeekPointer = useCallback((pointerId: number) => {
+    const g = weekGestureRef.current;
+    if (g.pointerId !== pointerId) return;
+    g.pointerId = null;
+    g.dragging = false;
+    setWeekCarouselDragging(false);
+  }, []);
 
   const applyDisplayWeekDelta = (deltaWeeks: number) => {
     const delta = deltaWeeks * 7;
@@ -722,35 +762,6 @@ export default function Home() {
     setTimeout(() => setIsTransitioning(false), 300);
   };
 
-  const finishWeekGesture = (endClientX: number) => {
-    const g = weekGestureRef.current;
-    if (!g.dragging) {
-      weekCarouselDidDragRef.current = false;
-      return;
-    }
-    g.dragging = false;
-    const w = weekColWRef.current;
-    if (w <= 0) return;
-    const finalT = Math.min(0, Math.max(-2 * w, g.startTranslate + (endClientX - g.startX)));
-    const settled = -w;
-    const threshold = w * 0.2;
-    if (finalT < settled - threshold) {
-      weekPendingCommitRef.current = 'next';
-      setWeekStripTransition(true);
-      setWeekTranslateX(-2 * w);
-      weekTranslateXRef.current = -2 * w;
-    } else if (finalT > settled + threshold) {
-      weekPendingCommitRef.current = 'prev';
-      setWeekStripTransition(true);
-      setWeekTranslateX(0);
-      weekTranslateXRef.current = 0;
-    } else {
-      setWeekStripTransition(true);
-      setWeekTranslateX(settled);
-      weekTranslateXRef.current = settled;
-    }
-  };
-
   const onWeekStripTransitionEnd = (e: React.TransitionEvent) => {
     if (e.propertyName !== 'transform') return;
     const pending = weekPendingCommitRef.current;
@@ -769,37 +780,36 @@ export default function Home() {
     });
   };
 
-  const handleWeekPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+  const handleWeekPointerDownCapture = (e: React.PointerEvent<HTMLDivElement>) => {
     if (weekColWRef.current <= 0) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     weekCarouselDidDragRef.current = false;
-    e.currentTarget.setPointerCapture(e.pointerId);
     weekGestureRef.current = {
       pointerId: e.pointerId,
+      pointerType: e.pointerType,
       startX: e.clientX,
       startY: e.clientY,
       startTranslate: weekTranslateXRef.current,
       dragging: false,
     };
-  };
-
-  const handleWeekPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    const g = weekGestureRef.current;
-    if (g.pointerId !== e.pointerId) return;
-    updateWeekDragGesture(e.clientX, e.clientY);
-    if (g.dragging) {
-      e.preventDefault();
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
     }
   };
 
-  const handleWeekPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+  const handleWeekPointerUpCapture = (e: React.PointerEvent<HTMLDivElement>) => {
     const g = weekGestureRef.current;
     if (g.pointerId !== e.pointerId) return;
     if (weekPendingCommitRef.current) {
-      g.pointerId = null;
-      g.dragging = false;
-      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-        e.currentTarget.releasePointerCapture(e.pointerId);
+      releaseWeekPointer(e.pointerId);
+      try {
+        if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+          e.currentTarget.releasePointerCapture(e.pointerId);
+        }
+      } catch {
+        /* ignore */
       }
       return;
     }
@@ -808,28 +818,48 @@ export default function Home() {
     } else {
       weekCarouselDidDragRef.current = false;
     }
-    g.pointerId = null;
-    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-      e.currentTarget.releasePointerCapture(e.pointerId);
+    releaseWeekPointer(e.pointerId);
+    try {
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+    } catch {
+      /* ignore */
     }
   };
 
-  const handleWeekPointerCancel = (e: React.PointerEvent<HTMLDivElement>) => {
+  const handleWeekPointerCancelCapture = (e: React.PointerEvent<HTMLDivElement>) => {
     const g = weekGestureRef.current;
     if (g.pointerId !== e.pointerId) return;
-    g.dragging = false;
-    g.pointerId = null;
     weekCarouselDidDragRef.current = false;
+    releaseWeekPointer(e.pointerId);
     const w = weekColWRef.current;
     if (w > 0) {
       setWeekStripTransition(true);
       setWeekTranslateX(-w);
       weekTranslateXRef.current = -w;
     }
-    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-      e.currentTarget.releasePointerCapture(e.pointerId);
+    try {
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+    } catch {
+      /* ignore */
     }
   };
+
+  useEffect(() => {
+    const onDocPointerMove = (e: PointerEvent) => {
+      const g = weekGestureRef.current;
+      if (g.pointerId === null || e.pointerId !== g.pointerId) return;
+      updateWeekDragGesture(e.clientX, e.clientY, g.pointerType);
+      if (g.dragging) e.preventDefault();
+    };
+    document.addEventListener('pointermove', onDocPointerMove, { passive: false });
+    return () => {
+      document.removeEventListener('pointermove', onDocPointerMove);
+    };
+  }, [updateWeekDragGesture]);
 
   const handleWeekdayPickForAnchor = (anchorDate: Date, dayIndex: number) => {
     if (weekCarouselDidDragRef.current) {
@@ -983,7 +1013,7 @@ export default function Home() {
             {isOverdueTask && (
               <span
                 id={`todo-overdue-date-${todo.id}`}
-                className="block text-xs text-red-500 mt-1 ml-8 text-right tabular-nums"
+                className="block text-xs text-red-500 mt-1 text-left tabular-nums"
               >
                 {getOverdueOriginalDate(todo)}
               </span>
@@ -1130,7 +1160,7 @@ export default function Home() {
   }
 
   return (
-    <main id="main-container" className="min-h-screen bg-[#F0F0F0] py-6">
+    <main id="main-container" className="min-h-screen bg-[#F0F0F0] py-6 pb-[calc(6.5rem+env(safe-area-inset-bottom,0px))]">
       <div id="app-wrapper" className="max-w-md md:max-w-lg lg:max-w-xl xl:max-w-2xl 2xl:max-w-5xl mx-auto px-4 md:px-6 lg:px-8 xl:px-12 2xl:px-16">
         <PushNotificationBanner
           status={push.status}
@@ -1237,45 +1267,6 @@ export default function Home() {
               )}
             </div>
           )}
-          
-          {/* View Navigation */}
-          <div id="view-navigation" className="flex justify-center gap-12">
-            <button
-              id="dashboard-nav-btn"
-              onClick={() => {
-                setIsTransitioning(true);
-                setCurrentView('dashboard');
-                setSelectedDay(new Date()); // Always reset to current day for dashboard
-                setTimeout(() => setIsTransitioning(false), 300);
-              }}
-              className={`text-[clamp(1.125rem,2vw,3rem)] ${currentView === 'dashboard' ? 'underline font-semibold' : ''} text-[#222222] transition-all`}
-            >
-              1
-            </button>
-            <button
-              id="monthly-nav-btn"
-              onClick={() => {
-                setIsTransitioning(true);
-                setCurrentView('monthly');
-                setTimeout(() => setIsTransitioning(false), 300);
-              }}
-              className={`text-lg md:text-xl lg:text-2xl ${currentView === 'monthly' ? 'underline font-semibold' : ''} text-[#222222] transition-all`}
-            >
-              2
-            </button>
-            <button
-              id="chosen-day-nav-btn"
-              onClick={() => {
-                setIsTransitioning(true);
-                setSelectedDay(chosenDayFromCalendar); // Use the last day chosen from calendar
-                setCurrentView('chosen-day');
-                setTimeout(() => setIsTransitioning(false), 300);
-              }}
-              className={`text-lg md:text-xl lg:text-2xl ${currentView === 'chosen-day' ? 'underline font-semibold' : ''} text-[#222222] transition-all`}
-            >
-              3
-            </button>
-          </div>
         </div>
 
         {/* Dashboard View and Chosen Day View */}
@@ -1286,12 +1277,11 @@ export default function Home() {
               <div
                 ref={weekViewportRef}
                 id="weekday-navigation-viewport"
-                className="overflow-hidden w-full touch-pan-y cursor-grab active:cursor-grabbing"
-                style={{ touchAction: 'pan-y' }}
-                onPointerDown={handleWeekPointerDown}
-                onPointerMove={handleWeekPointerMove}
-                onPointerUp={handleWeekPointerUp}
-                onPointerCancel={handleWeekPointerCancel}
+                className="overflow-hidden w-full cursor-grab active:cursor-grabbing select-none"
+                style={{ touchAction: 'none' }}
+                onPointerDownCapture={handleWeekPointerDownCapture}
+                onPointerUpCapture={handleWeekPointerUpCapture}
+                onPointerCancelCapture={handleWeekPointerCancelCapture}
               >
                 <div
                   id="weekday-navigation-track"
@@ -1382,8 +1372,9 @@ export default function Home() {
                                   type="button"
                                   id={`weekday-btn-${colIdx}-${index}`}
                                   onClick={() => handleWeekdayPickForAnchor(anchorDate, index)}
-                                  className={`relative z-10 touch-manipulation w-full py-[clamp(0.75rem,2vw,2.5rem)] px-[clamp(0.25rem,1vw,1rem)] rounded-lg transition-all duration-300 ${bgColor} ${textColor} min-w-0 select-none`}
-                                  style={{ touchAction: 'manipulation' }}
+                                  className={`relative z-10 w-full py-[clamp(0.75rem,2vw,2.5rem)] px-[clamp(0.25rem,1vw,1rem)] rounded-lg transition-all duration-300 ${bgColor} ${textColor} min-w-0 select-none ${
+                                    weekCarouselDragging ? 'pointer-events-none' : 'touch-manipulation'
+                                  }`}
                                 >
                                   <span
                                     id={`weekday-text-${colIdx}-${index}`}
@@ -2193,6 +2184,62 @@ export default function Home() {
           </div>
         )}
       </div>
+
+      {/* Sticky bottom navigation — liquid glass */}
+      <nav
+        id="bottom-glass-nav"
+        className="fixed inset-x-0 bottom-0 z-50 flex justify-center px-4"
+        style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' }}
+        aria-label="Hauptnavigation"
+      >
+        <div className="liquid-glass-nav flex w-full max-w-md items-center justify-between rounded-[28px] px-10 py-3">
+          <button
+            type="button"
+            id="bottom-nav-todo"
+            onClick={() => {
+              setIsTransitioning(true);
+              setCurrentView('dashboard');
+              setSelectedDay(new Date());
+              setTimeout(() => setIsTransitioning(false), 300);
+            }}
+            className={`flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#222222]/30 ${
+              currentView === 'dashboard' || currentView === 'chosen-day'
+                ? 'bg-[#222222]/10 text-[#222222] scale-105'
+                : 'text-[#7D7D7D] hover:text-[#222222] active:scale-95'
+            }`}
+            aria-label="To-Do"
+            aria-current={currentView === 'dashboard' || currentView === 'chosen-day' ? 'page' : undefined}
+          >
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M9 11l3 3L22 4" />
+              <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            id="bottom-nav-calendar"
+            onClick={() => {
+              setIsTransitioning(true);
+              setCurrentView('monthly');
+              setTimeout(() => setIsTransitioning(false), 300);
+            }}
+            className={`flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#222222]/30 ${
+              currentView === 'monthly'
+                ? 'bg-[#222222]/10 text-[#222222] scale-105'
+                : 'text-[#7D7D7D] hover:text-[#222222] active:scale-95'
+            }`}
+            aria-label="Kalender"
+            aria-current={currentView === 'monthly' ? 'page' : undefined}
+          >
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+              <line x1="16" y1="2" x2="16" y2="6" />
+              <line x1="8" y1="2" x2="8" y2="6" />
+              <line x1="3" y1="10" x2="21" y2="10" />
+            </svg>
+          </button>
+        </div>
+      </nav>
 
       <style jsx>{`
         @keyframes slideUpFromBottom {
