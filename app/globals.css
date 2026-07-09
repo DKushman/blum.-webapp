@@ -16,3 +16,37 @@ body {
 * {
   box-sizing: border-box;
 }
+
+@keyframes todoTitleStrike {
+  from {
+    background-size: 0% 1px;
+    opacity: 1;
+  }
+  to {
+    background-size: 100% 1px;
+    opacity: 0.55;
+  }
+}
+
+.todo-title-strike {
+  display: inline-block;
+  max-width: 100%;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.todo-title-strike.is-striking {
+  background-image: linear-gradient(currentColor, currentColor);
+  background-repeat: no-repeat;
+  background-position: 0 54%;
+  background-size: 0% 1px;
+  animation: todoTitleStrike 0.7s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.todo-title-strike.is-struck {
+  background-image: linear-gradient(currentColor, currentColor);
+  background-repeat: no-repeat;
+  background-position: 0 54%;
+  background-size: 100% 1px;
+  opacity: 0.55;
+}

@@ -2,8 +2,12 @@ import { NextResponse } from "next/server";
 import { Receiver } from "@upstash/qstash";
 
 import { getRedis, REDIS_KEYS } from "@/lib/redis";
-import type { PushSubscriptionPayload, ReminderPayload } from "@/lib/push/types";
-import { sendPushNotification } from "@/lib/push/web-push-server";
+import type { ReminderPayload } from "@/lib/push/types";
+import {
+  dispatchReminder,
+  processDueRemindersForDevice,
+} from "@/lib/push/dispatch";
+import { getAppUrl } from "@/lib/qstash";
 
 const LOOKBACK_MS = 2 * 60 * 1000;
 
@@ -31,7 +35,8 @@ async function verifyQStash(
       currentSigningKey: current,
       nextSigningKey: next,
     });
-    await receiver.verify({ signature, body, url: request.url });
+    const verifyUrl = `${getAppUrl()}/api/cron/reminders`;
+    await receiver.verify({ signature, body, url: verifyUrl });
     const parsed = JSON.parse(body) as {
       deviceId?: string;
       reminder?: ReminderPayload;
@@ -41,28 +46,6 @@ async function verifyQStash(
   } catch {
     return null;
   }
-}
-
-async function dispatchReminder(deviceId: string, reminder: ReminderPayload) {
-  const redis = getRedis();
-  if (!redis) return false;
-
-  const sentKey = REDIS_KEYS.sent(deviceId, reminder.todoId, reminder.remindAt);
-  const alreadySent = await redis.get(sentKey);
-  if (alreadySent) return false;
-
-  const subscription = await redis.get<PushSubscriptionPayload>(
-    REDIS_KEYS.subscription(deviceId)
-  );
-  if (!subscription) return false;
-
-  await sendPushNotification(subscription, {
-    title: "Blumè.",
-    body: reminder.text,
-    url: "/",
-  });
-  await redis.set(sentKey, "1", { ex: 60 * 60 * 25 });
-  return true;
 }
 
 export async function POST(request: Request) {
@@ -93,23 +76,10 @@ export async function GET(request: Request) {
   let checked = 0;
 
   for (const deviceId of deviceIds) {
-    const [subscription, reminders] = await Promise.all([
-      redis.get<PushSubscriptionPayload>(REDIS_KEYS.subscription(deviceId)),
-      redis.get<ReminderPayload[]>(REDIS_KEYS.reminders(deviceId)),
-    ]);
-
-    if (!subscription || !reminders?.length) continue;
-
-    for (const reminder of reminders) {
-      checked += 1;
-      const remindAtMs = new Date(reminder.remindAt).getTime();
-      if (Number.isNaN(remindAtMs)) continue;
-      if (remindAtMs > now || remindAtMs < windowStart) continue;
-
-      const didSend = await dispatchReminder(deviceId, reminder);
-      if (didSend) sent += 1;
-    }
+    const result = await processDueRemindersForDevice(deviceId, now);
+    checked += result.checked;
+    sent += result.sent;
   }
 
-  return NextResponse.json({ ok: true, checked, sent, devices: deviceIds.length });
+  return NextResponse.json({ ok: true, checked, sent, devices: deviceIds.length, windowStart });
 }

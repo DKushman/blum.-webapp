@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getRedis, REDIS_KEYS } from "@/lib/redis";
 import type { PushSubscriptionPayload } from "@/lib/push/types";
+import { ensureDailyDigestSchedule } from "@/lib/push/schedule-daily-digest";
 
 export async function POST(request: Request) {
   const redis = getRedis();
@@ -32,6 +33,7 @@ export async function POST(request: Request) {
 
   await redis.sadd(REDIS_KEYS.devices, deviceId);
   await redis.set(REDIS_KEYS.subscription(deviceId), subscription);
+  await ensureDailyDigestSchedule(deviceId);
 
   return NextResponse.json({ ok: true });
 }

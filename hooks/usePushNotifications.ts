@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { getRemindAtIso } from "@/lib/push/parse-time";
+import { buildReminderAt } from "@/lib/push/build-reminder";
+import type { TodoDigestSnapshot } from "@/lib/push/daily-digest";
+import type { ReminderOffset } from "@/lib/push/reminder-offset";
 import type { ReminderPayload } from "@/lib/push/types";
 import { getOrCreateDeviceId, urlBase64ToUint8Array } from "@/lib/push/device-id";
 
@@ -10,19 +12,56 @@ type TodoLike = {
   id: string;
   text: string;
   date: string;
-  time?: string;
   reminderEnabled?: boolean;
   reminderTime?: string;
+  reminderOffset?: ReminderOffset;
   completed: boolean;
+  completedOn?: string;
 };
 
+function toDigestSnapshot(todos: TodoLike[]): TodoDigestSnapshot[] {
+  return todos.map((todo) => ({
+    id: todo.id,
+    date: todo.date,
+    completed: todo.completed,
+    completedOn: todo.completedOn,
+  }));
+}
+
 type PushStatus = "unsupported" | "default" | "granted" | "denied" | "loading";
+
+const POLL_INTERVAL_MS = 45_000;
+
+async function waitForServiceWorker() {
+  if (!("serviceWorker" in navigator)) return null;
+  const registration = await navigator.serviceWorker.getRegistration("/sw.js");
+  if (registration) return registration;
+  await navigator.serviceWorker.register("/sw.js");
+  return navigator.serviceWorker.ready;
+}
 
 export function usePushNotifications(todos: TodoLike[]) {
   const [status, setStatus] = useState<PushStatus>("default");
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [syncStatus, setSyncStatus] = useState<string | null>(null);
   const syncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const pollDueReminders = useCallback(async () => {
+    if (Notification.permission !== "granted") return;
+
+    const deviceId = getOrCreateDeviceId();
+    try {
+      await fetch("/api/reminders/poll", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deviceId }),
+      });
+    } catch {
+      /* offline */
+    }
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -39,8 +78,10 @@ export function usePushNotifications(todos: TodoLike[]) {
 
     setStatus(Notification.permission as PushStatus);
 
-    navigator.serviceWorker.ready
-      .then((registration) => registration.pushManager.getSubscription())
+    waitForServiceWorker()
+      .then((registration) =>
+        registration?.pushManager.getSubscription()
+      )
       .then((sub) => setIsSubscribed(Boolean(sub)))
       .catch(() => setIsSubscribed(false));
   }, []);
@@ -55,7 +96,8 @@ export function usePushNotifications(todos: TodoLike[]) {
     for (const todo of nextTodos) {
       if (todo.completed || !todo.reminderEnabled || !todo.reminderTime) continue;
 
-      const remindAt = getRemindAtIso(todo.date, todo.reminderTime);
+      const offset = todo.reminderOffset ?? "30m";
+      const remindAt = buildReminderAt(todo.date, todo.reminderTime, offset);
       if (!remindAt) continue;
       if (new Date(remindAt).getTime() < now - 60_000) continue;
 
@@ -63,14 +105,36 @@ export function usePushNotifications(todos: TodoLike[]) {
         todoId: todo.id,
         text: todo.text,
         remindAt,
+        offset,
       });
     }
 
-    await fetch("/api/todos/sync", {
+    const response = await fetch("/api/todos/sync", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ deviceId, reminders }),
+      body: JSON.stringify({
+        deviceId,
+        reminders,
+        digestTodos: toDigestSnapshot(nextTodos),
+      }),
     });
+
+    const data = (await response.json().catch(() => ({}))) as {
+      error?: string;
+      scheduled?: number;
+      count?: number;
+    };
+
+    if (!response.ok) {
+      setSyncStatus(data.error ?? "Erinnerungen konnten nicht synchronisiert werden.");
+      return;
+    }
+
+    setSyncStatus(
+      reminders.length > 0
+        ? `${reminders.length} Erinnerung(en) synchronisiert`
+        : null
+    );
   }, []);
 
   useEffect(() => {
@@ -79,7 +143,7 @@ export function usePushNotifications(todos: TodoLike[]) {
     if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
     syncTimeoutRef.current = setTimeout(() => {
       syncReminders(todos).catch(() => {
-        /* offline / redis not configured */
+        setSyncStatus("Sync fehlgeschlagen — bitte Verbindung prüfen.");
       });
     }, 500);
 
@@ -88,8 +152,28 @@ export function usePushNotifications(todos: TodoLike[]) {
     };
   }, [todos, isSubscribed, syncReminders]);
 
+  useEffect(() => {
+    if (!isSubscribed) return;
+
+    void pollDueReminders();
+    pollIntervalRef.current = setInterval(() => {
+      void pollDueReminders();
+    }, POLL_INTERVAL_MS);
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void pollDueReminders();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [isSubscribed, pollDueReminders]);
+
   const subscribe = useCallback(async () => {
     setError(null);
+    setSyncStatus(null);
     setStatus("loading");
 
     const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
@@ -104,7 +188,9 @@ export function usePushNotifications(todos: TodoLike[]) {
       setStatus(permission as PushStatus);
       if (permission !== "granted") return false;
 
-      const registration = await navigator.serviceWorker.ready;
+      const registration = await waitForServiceWorker();
+      if (!registration) throw new Error("Service Worker nicht verfügbar");
+
       const existing = await registration.pushManager.getSubscription();
       const subscription =
         existing ??
@@ -143,16 +229,18 @@ export function usePushNotifications(todos: TodoLike[]) {
 
       setIsSubscribed(true);
       await syncReminders(todos);
+      await pollDueReminders();
       return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unbekannter Fehler");
       setStatus(Notification.permission as PushStatus);
       return false;
     }
-  }, [syncReminders, todos]);
+  }, [syncReminders, todos, pollDueReminders]);
 
   const unsubscribe = useCallback(async () => {
     setError(null);
+    setSyncStatus(null);
     try {
       const registration = await navigator.serviceWorker.ready;
       const subscription = await registration.pushManager.getSubscription();
@@ -175,6 +263,7 @@ export function usePushNotifications(todos: TodoLike[]) {
     status,
     isSubscribed,
     error,
+    syncStatus,
     subscribe,
     unsubscribe,
     canUsePush: status !== "unsupported",

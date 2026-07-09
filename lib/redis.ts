@@ -25,4 +25,8 @@ export const REDIS_KEYS = {
   reminders: (deviceId: string) => `blume:reminders:${deviceId}`,
   sent: (deviceId: string, todoId: string, remindAt: string) =>
     `blume:sent:${deviceId}:${todoId}:${remindAt}`,
+  dailyDigestSchedule: (deviceId: string) => `blume:digest-schedule:${deviceId}`,
+  dailyDigestTodos: (deviceId: string) => `blume:digest-todos:${deviceId}`,
+  dailyDigestSent: (deviceId: string, date: string) =>
+    `blume:digest-sent:${deviceId}:${date}`,
 } as const;

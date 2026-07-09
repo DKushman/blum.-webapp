@@ -4,6 +4,7 @@ type PushNotificationBannerProps = {
   status: "unsupported" | "default" | "granted" | "denied" | "loading";
   isSubscribed: boolean;
   error: string | null;
+  syncStatus?: string | null;
   onSubscribe: () => void;
   onUnsubscribe: () => void;
   canUsePush: boolean;
@@ -13,6 +14,7 @@ export function PushNotificationBanner({
   status,
   isSubscribed,
   error,
+  syncStatus,
   onSubscribe,
   onUnsubscribe,
   canUsePush,
@@ -37,7 +39,10 @@ export function PushNotificationBanner({
         role="status"
         className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900"
       >
-        <span>Erinnerungen per Push sind aktiv.</span>
+        <span>
+          Erinnerungen per Push sind aktiv.
+          {syncStatus ? ` ${syncStatus}` : ''}
+        </span>
         <button
           type="button"
           onClick={onUnsubscribe}

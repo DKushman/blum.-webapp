@@ -10,6 +10,10 @@ import {
 import { FitnessDashboard } from '@/components/FitnessDashboard';
 import { PushNotificationBanner } from '@/components/PushNotificationBanner';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
+import {
+  REMINDER_OFFSET_LABELS,
+  type ReminderOffset,
+} from '@/lib/push/reminder-offset';
 
 type Folder = {
   id: string;
@@ -28,6 +32,8 @@ type Todo = {
   reminderEnabled?: boolean;
   /** Erinnerungszeit als HH:MM */
   reminderTime?: string;
+  /** Wie lange vor dem Termin erinnert wird */
+  reminderOffset?: ReminderOffset;
   date: string; // YYYY-MM-DD format — geplanter Tag
   completed: boolean;
   /** Wenn erledigt: Tag, an dem abgehakt (für Anzeige); fehlt bei alten Daten → Fallback `date` */
@@ -67,6 +73,7 @@ export default function Home() {
   const [newTodoTime, setNewTodoTime] = useState('');
   const [newTodoReminderEnabled, setNewTodoReminderEnabled] = useState(false);
   const [newTodoReminderTime, setNewTodoReminderTime] = useState('');
+  const [newTodoReminderOffset, setNewTodoReminderOffset] = useState<ReminderOffset>('30m');
   const [newTodoRepeating, setNewTodoRepeating] = useState<'' | Repeating>('');
   const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
   const [showDeleteTodoModal, setShowDeleteTodoModal] = useState(false);
@@ -78,9 +85,8 @@ export default function Home() {
   const [datePickForTodoId, setDatePickForTodoId] = useState<string | null>(null); // Beim Bearbeiten: Tag auswählen zum Verschieben
 
   const SWIPE_ACTION_WIDTH = 140;
-  const WEEK_PAN_TOUCH_THRESHOLD_PX = 14;
-  const WEEK_PAN_MOUSE_THRESHOLD_PX = 10;
-  const WEEK_PAN_PREVENT_SCROLL_PX = 22;
+  const WEEK_PAN_TOUCH_THRESHOLD_PX = 8;
+  const WEEK_PAN_MOUSE_THRESHOLD_PX = 8;
 
   // Ref for document-level mouse drag (so drag works when cursor leaves the row)
   const mouseDragRef = useRef<{ todoId: string; startX: number; offset: number } | null>(null);
@@ -89,19 +95,21 @@ export default function Home() {
   const weekColWRef = useRef(0);
   const weekTranslateXRef = useRef(0);
   const weekGestureRef = useRef<{
-    pointer: 'mouse' | 'touch' | null;
+    pointerId: number | null;
     startX: number;
     startY: number;
     startTranslate: number;
     dragging: boolean;
-  }>({ pointer: null, startX: 0, startY: 0, startTranslate: 0, dragging: false });
+  }>({ pointerId: null, startX: 0, startY: 0, startTranslate: 0, dragging: false });
   const weekPendingCommitRef = useRef<'next' | 'prev' | null>(null);
+  const weekCarouselDidDragRef = useRef(false);
 
   const [openFolderKeys, setOpenFolderKeys] = useState<Record<string, boolean>>({});
   const [weekColW, setWeekColW] = useState(0);
   const [weekTranslateX, setWeekTranslateX] = useState(0);
   const [weekStripTransition, setWeekStripTransition] = useState(true);
   const [entryArea, setEntryArea] = useState<EntryRoute>('hydrating');
+  const [strikingTodoIds, setStrikingTodoIds] = useState<Record<string, boolean>>({});
 
   // Load folders from localStorage on mount
   const [folders, setFolders] = useState<Folder[]>(() => {
@@ -317,18 +325,45 @@ export default function Home() {
   };
 
   const toggleTodoComplete = (todoId: string) => {
-    // Don't toggle if swipe actions are open
     if (getSwipeOffset(todoId) < 0) return;
-    const todayStr = formatDateString(new Date());
-    setTodos(
-      todos.map((todo) => {
-        if (todo.id !== todoId) return todo;
-        if (todo.completed) {
-          return { ...todo, completed: false, completedOn: undefined };
-        }
-        return { ...todo, completed: true, completedOn: todayStr };
-      })
-    );
+
+    const todo = todos.find((item) => item.id === todoId);
+    if (!todo) return;
+
+    if (todo.completed) {
+      setTodos(
+        todos.map((item) =>
+          item.id === todoId
+            ? { ...item, completed: false, completedOn: undefined }
+            : item
+        )
+      );
+      return;
+    }
+
+    setStrikingTodoIds((prev) => ({ ...prev, [todoId]: true }));
+    window.setTimeout(() => {
+      const todayStr = formatDateString(new Date());
+      setTodos((prev) =>
+        prev.map((item) =>
+          item.id === todoId
+            ? { ...item, completed: true, completedOn: todayStr }
+            : item
+        )
+      );
+      setStrikingTodoIds((prev) => {
+        const next = { ...prev };
+        delete next[todoId];
+        return next;
+      });
+    }, 700);
+  };
+
+  const getTodoTitleStrikeClass = (todo: Todo) => {
+    const striking = Boolean(strikingTodoIds[todo.id]);
+    if (striking) return 'todo-title-strike is-striking';
+    if (todo.completed) return 'todo-title-strike is-struck';
+    return 'todo-title-strike';
   };
 
   const deleteTodo = (todoId: string) => {
@@ -376,6 +411,7 @@ export default function Home() {
     }
     setNewTodoReminderEnabled(todo.reminderEnabled ?? false);
     setNewTodoReminderTime(todo.reminderTime ?? '');
+    setNewTodoReminderOffset(todo.reminderOffset ?? '30m');
     setAddTodoStep(4);
     setShowAddTodoModal(true);
     setTodoSwipeOffsets(prev => ({ ...prev, [todo.id]: 0 }));
@@ -543,6 +579,7 @@ export default function Home() {
     const reminderEnabled = newTodoReminderEnabled;
     const reminderTime =
       reminderEnabled && newTodoReminderTime ? newTodoReminderTime : undefined;
+    const reminderOffset = reminderEnabled ? newTodoReminderOffset : undefined;
     const folderId = newTodoFolder || undefined;
 
     if (editingTodo) {
@@ -553,6 +590,7 @@ export default function Home() {
         time: timeDisplay,
         reminderEnabled,
         reminderTime,
+        reminderOffset,
       };
       setTodos(todos.map(todo => todo.id === editingTodo.id ? updatedTodo : todo));
       setEditingTodo(null);
@@ -570,6 +608,7 @@ export default function Home() {
           time: timeDisplay,
           reminderEnabled,
           reminderTime,
+          reminderOffset,
           date: formatDateString(d),
           completed: false,
           seriesId,
@@ -584,6 +623,7 @@ export default function Home() {
           time: timeDisplay,
           reminderEnabled,
           reminderTime,
+          reminderOffset,
           date: formatDateString(dateToUse),
           completed: false,
         };
@@ -596,6 +636,7 @@ export default function Home() {
     setNewTodoTime('');
     setNewTodoReminderEnabled(false);
     setNewTodoReminderTime('');
+    setNewTodoReminderOffset('30m');
     setNewTodoRepeating('');
     setAddTodoStep(1);
     setShowAddTodoModal(false);
@@ -638,6 +679,25 @@ export default function Home() {
     setWeekTranslateX(nx);
   }, []);
 
+  const updateWeekDragGesture = useCallback((clientX: number, clientY: number) => {
+    const g = weekGestureRef.current;
+    if (g.pointerId === null) return;
+    const dx = clientX - g.startX;
+    const dy = clientY - g.startY;
+    if (!g.dragging) {
+      const threshold =
+        typeof window !== 'undefined' && 'ontouchstart' in window
+          ? WEEK_PAN_TOUCH_THRESHOLD_PX
+          : WEEK_PAN_MOUSE_THRESHOLD_PX;
+      if (Math.abs(dx) < threshold) return;
+      if (Math.abs(dx) <= Math.abs(dy)) return;
+      g.dragging = true;
+      weekCarouselDidDragRef.current = true;
+      setWeekStripTransition(false);
+    }
+    applyWeekDragFromClientX(clientX);
+  }, [applyWeekDragFromClientX]);
+
   const applyDisplayWeekDelta = (deltaWeeks: number) => {
     const delta = deltaWeeks * 7;
     if (currentView === 'chosen-day') {
@@ -664,6 +724,10 @@ export default function Home() {
 
   const finishWeekGesture = (endClientX: number) => {
     const g = weekGestureRef.current;
+    if (!g.dragging) {
+      weekCarouselDidDragRef.current = false;
+      return;
+    }
     g.dragging = false;
     const w = weekColWRef.current;
     if (w <= 0) return;
@@ -705,104 +769,73 @@ export default function Home() {
     });
   };
 
-  const handleWeekNavTouchStart = (e: React.TouchEvent) => {
-    if (e.touches.length !== 1) return;
-    const t = e.touches[0];
+  const handleWeekPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (weekColWRef.current <= 0) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    weekCarouselDidDragRef.current = false;
+    e.currentTarget.setPointerCapture(e.pointerId);
     weekGestureRef.current = {
-      pointer: 'touch',
-      startX: t.clientX,
-      startY: t.clientY,
-      startTranslate: weekTranslateXRef.current,
-      dragging: false,
-    };
-  };
-
-  const handleWeekNavTouchEnd = (e: React.TouchEvent) => {
-    const g = weekGestureRef.current;
-    if (g.pointer !== 'touch') return;
-    const t = e.changedTouches[0];
-    if (!t) return;
-    if (weekPendingCommitRef.current) return;
-    if (!g.dragging) {
-      g.pointer = null;
-      return;
-    }
-    finishWeekGesture(t.clientX);
-    g.pointer = null;
-  };
-
-  const handleWeekNavMouseDown = (e: React.MouseEvent) => {
-    if (e.button !== 0) return;
-    const w = weekColWRef.current;
-    if (w <= 0) return;
-    weekGestureRef.current = {
-      pointer: 'mouse',
+      pointerId: e.pointerId,
       startX: e.clientX,
       startY: e.clientY,
       startTranslate: weekTranslateXRef.current,
       dragging: false,
     };
-
-    const onMove = (ev: MouseEvent) => {
-      const g = weekGestureRef.current;
-      if (g.pointer !== 'mouse') return;
-      const dx = ev.clientX - g.startX;
-      const dy = ev.clientY - g.startY;
-      if (!g.dragging) {
-        if (Math.abs(dx) < WEEK_PAN_MOUSE_THRESHOLD_PX) return;
-        if (Math.abs(dx) <= Math.abs(dy)) return;
-        g.dragging = true;
-        setWeekStripTransition(false);
-      }
-      applyWeekDragFromClientX(ev.clientX);
-    };
-
-    const onUp = (ev: MouseEvent) => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-      const g = weekGestureRef.current;
-      if (g.pointer !== 'mouse') return;
-      if (!g.dragging) {
-        g.pointer = null;
-        return;
-      }
-      finishWeekGesture(ev.clientX);
-      g.pointer = null;
-    };
-
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
   };
 
-  useEffect(() => {
-    if (currentView === 'monthly') return;
-    const el = weekViewportRef.current;
-    if (!el) return;
-    const onNativeTouchMove = (ev: TouchEvent) => {
-      const g = weekGestureRef.current;
-      if (g.pointer !== 'touch') return;
-      const touch = ev.touches[0];
-      if (!touch) return;
-      const w = weekColWRef.current;
-      if (w <= 0) return;
-      const dx = touch.clientX - g.startX;
-      const dy = touch.clientY - g.startY;
-      if (!g.dragging) {
-        if (Math.abs(dx) < WEEK_PAN_TOUCH_THRESHOLD_PX) return;
-        if (Math.abs(dx) <= Math.abs(dy)) return;
-        g.dragging = true;
-        setWeekStripTransition(false);
+  const handleWeekPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const g = weekGestureRef.current;
+    if (g.pointerId !== e.pointerId) return;
+    updateWeekDragGesture(e.clientX, e.clientY);
+    if (g.dragging) {
+      e.preventDefault();
+    }
+  };
+
+  const handleWeekPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const g = weekGestureRef.current;
+    if (g.pointerId !== e.pointerId) return;
+    if (weekPendingCommitRef.current) {
+      g.pointerId = null;
+      g.dragging = false;
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
       }
-      if (g.dragging && Math.abs(dx) >= WEEK_PAN_PREVENT_SCROLL_PX && Math.abs(dx) > Math.abs(dy)) {
-        ev.preventDefault();
-      }
-      applyWeekDragFromClientX(touch.clientX);
-    };
-    el.addEventListener('touchmove', onNativeTouchMove, { passive: false });
-    return () => el.removeEventListener('touchmove', onNativeTouchMove);
-  }, [currentView, applyWeekDragFromClientX]);
+      return;
+    }
+    if (g.dragging) {
+      finishWeekGesture(e.clientX);
+    } else {
+      weekCarouselDidDragRef.current = false;
+    }
+    g.pointerId = null;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+  };
+
+  const handleWeekPointerCancel = (e: React.PointerEvent<HTMLDivElement>) => {
+    const g = weekGestureRef.current;
+    if (g.pointerId !== e.pointerId) return;
+    g.dragging = false;
+    g.pointerId = null;
+    weekCarouselDidDragRef.current = false;
+    const w = weekColWRef.current;
+    if (w > 0) {
+      setWeekStripTransition(true);
+      setWeekTranslateX(-w);
+      weekTranslateXRef.current = -w;
+    }
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+  };
 
   const handleWeekdayPickForAnchor = (anchorDate: Date, dayIndex: number) => {
+    if (weekCarouselDidDragRef.current) {
+      weekCarouselDidDragRef.current = false;
+      return;
+    }
     setIsTransitioning(true);
     const anchorIdx = getWeekdayIndexForDate(anchorDate);
     const newDate = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), anchorDate.getDate());
@@ -934,20 +967,24 @@ export default function Home() {
 
           <div id={`todo-content-${todo.id}`} className="flex-1 min-w-0">
             {todo.time && (
-              <span id={`todo-time-${todo.id}`} className={`text-xs text-[#7D7D7D] block ${todo.completed ? 'line-through opacity-60' : ''}`}>
+              <span id={`todo-time-${todo.id}`} className={`text-xs text-[#7D7D7D] block ${todo.completed ? 'opacity-60' : ''}`}>
                 {todo.time}
               </span>
             )}
             {todo.reminderEnabled && todo.reminderTime && (
-              <span id={`todo-reminder-${todo.id}`} className={`text-xs text-[#7D7D7D] block ${todo.completed ? 'line-through opacity-60' : ''}`}>
+              <span id={`todo-reminder-${todo.id}`} className={`text-xs text-[#7D7D7D] block ${todo.completed ? 'opacity-60' : ''}`}>
                 Erinnerung {formatReminderTimeDisplay(todo.reminderTime)} Uhr
+                {todo.reminderOffset ? ` · ${REMINDER_OFFSET_LABELS[todo.reminderOffset]}` : ''}
               </span>
             )}
-            <span id={`todo-text-${todo.id}`} className={`text-[#222222] block ${todo.completed ? 'line-through opacity-60' : ''}`}>
+            <span id={`todo-text-${todo.id}`} className={`text-[#222222] block ${getTodoTitleStrikeClass(todo)}`}>
               {todo.text}
             </span>
             {isOverdueTask && (
-              <span id={`todo-overdue-date-${todo.id}`} className={`text-xs text-red-500 block mt-1 ${todo.completed ? 'line-through opacity-60' : ''}`}>
+              <span
+                id={`todo-overdue-date-${todo.id}`}
+                className="block text-xs text-red-500 mt-1 ml-8 text-right tabular-nums"
+              >
                 {getOverdueOriginalDate(todo)}
               </span>
             )}
@@ -1099,6 +1136,7 @@ export default function Home() {
           status={push.status}
           isSubscribed={push.isSubscribed}
           error={push.error}
+          syncStatus={push.syncStatus}
           onSubscribe={() => {
             void push.subscribe();
           }}
@@ -1248,22 +1286,12 @@ export default function Home() {
               <div
                 ref={weekViewportRef}
                 id="weekday-navigation-viewport"
-                className="overflow-hidden w-full touch-pan-y"
-                onMouseDown={handleWeekNavMouseDown}
-                onTouchStart={handleWeekNavTouchStart}
-                onTouchEnd={handleWeekNavTouchEnd}
-                onTouchCancel={() => {
-                  const g = weekGestureRef.current;
-                  if (g.pointer !== 'touch') return;
-                  g.dragging = false;
-                  g.pointer = null;
-                  const w = weekColWRef.current;
-                  if (w > 0) {
-                    setWeekStripTransition(true);
-                    setWeekTranslateX(-w);
-                    weekTranslateXRef.current = -w;
-                  }
-                }}
+                className="overflow-hidden w-full touch-pan-y cursor-grab active:cursor-grabbing"
+                style={{ touchAction: 'pan-y' }}
+                onPointerDown={handleWeekPointerDown}
+                onPointerMove={handleWeekPointerMove}
+                onPointerUp={handleWeekPointerUp}
+                onPointerCancel={handleWeekPointerCancel}
               >
                 <div
                   id="weekday-navigation-track"
@@ -1354,7 +1382,8 @@ export default function Home() {
                                   type="button"
                                   id={`weekday-btn-${colIdx}-${index}`}
                                   onClick={() => handleWeekdayPickForAnchor(anchorDate, index)}
-                                  className={`relative z-10 touch-manipulation w-full py-[clamp(0.75rem,2vw,2.5rem)] px-[clamp(0.25rem,1vw,1rem)] rounded-lg transition-all duration-300 ${bgColor} ${textColor} min-w-0`}
+                                  className={`relative z-10 touch-manipulation w-full py-[clamp(0.75rem,2vw,2.5rem)] px-[clamp(0.25rem,1vw,1rem)] rounded-lg transition-all duration-300 ${bgColor} ${textColor} min-w-0 select-none`}
+                                  style={{ touchAction: 'manipulation' }}
                                 >
                                   <span
                                     id={`weekday-text-${colIdx}-${index}`}
@@ -1412,6 +1441,7 @@ export default function Home() {
                   setNewTodoTime('');
                   setNewTodoReminderEnabled(false);
                   setNewTodoReminderTime('');
+                  setNewTodoReminderOffset('30m');
                   setNewTodoRepeating('');
                   setEditingTodo(null);
                   setShowAddTodoModal(true);
@@ -1931,14 +1961,42 @@ export default function Home() {
                             </button>
                           </div>
                           {newTodoReminderEnabled && (
-                            <div className="flex w-full min-w-0 justify-center sm:justify-start">
-                              <input
-                                id="todo-reminder-time-input"
-                                type="time"
-                                value={newTodoReminderTime || ''}
-                                onChange={(e) => setNewTodoReminderTime(e.target.value || '')}
-                                className="box-border min-w-0 w-full max-w-[min(100%,10.5rem)] sm:max-w-none text-base px-3 py-3 sm:px-4 border-2 border-gray-200 rounded-xl text-[#222222] focus:border-[#222222] focus:outline-none transition-colors"
-                              />
+                            <div className="space-y-3">
+                              <div>
+                                <label htmlFor="todo-reminder-time-input" className="block text-xs font-medium text-[#7D7D7D] mb-2">
+                                  Termin-Uhrzeit
+                                </label>
+                                <div className="flex w-full min-w-0 justify-center sm:justify-start">
+                                  <input
+                                    id="todo-reminder-time-input"
+                                    type="time"
+                                    value={newTodoReminderTime || ''}
+                                    onChange={(e) => setNewTodoReminderTime(e.target.value || '')}
+                                    className="box-border min-w-0 w-full max-w-[min(100%,10.5rem)] sm:max-w-none text-base px-3 py-3 sm:px-4 border-2 border-gray-200 rounded-xl text-[#222222] focus:border-[#222222] focus:outline-none transition-colors"
+                                  />
+                                </div>
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-[#7D7D7D] mb-2">
+                                  Wann benachrichtigen?
+                                </label>
+                                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                                  {(['30m', '1h', '1d'] as const).map((offset) => (
+                                    <button
+                                      key={offset}
+                                      type="button"
+                                      onClick={() => setNewTodoReminderOffset(offset)}
+                                      className={`min-h-[3rem] px-3 py-2.5 rounded-xl border-2 text-sm font-medium transition-all ${
+                                        newTodoReminderOffset === offset
+                                          ? 'border-[#222222] bg-gray-50 text-[#222222]'
+                                          : 'border-gray-200 text-[#7D7D7D] hover:border-gray-300'
+                                      }`}
+                                    >
+                                      {REMINDER_OFFSET_LABELS[offset]}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
                             </div>
                           )}
                         </div>
@@ -1952,6 +2010,7 @@ export default function Home() {
                               setNewTodoTime('');
                               setNewTodoReminderEnabled(false);
                               setNewTodoReminderTime('');
+                              setNewTodoReminderOffset('30m');
                               setNewTodoRepeating('');
                               setEditingTodo(null);
                               setAddTodoStep(1);
