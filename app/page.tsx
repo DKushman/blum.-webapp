@@ -9,9 +9,13 @@ import {
 } from '@/components/EntryModePicker';
 import { FitnessDashboard } from '@/components/FitnessDashboard';
 import { PushNotificationBanner } from '@/components/PushNotificationBanner';
+import { TodoFolderGroup } from '@/components/TodoFolderGroup';
+import { TodoStrikeTitle, type TodoStrikeState } from '@/components/TodoStrikeTitle';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
 import {
-  REMINDER_OFFSET_LABELS,
+  REMINDER_OFFSET_OPTIONS,
+  REMINDER_OFFSET_SHORT,
+  normalizeReminderOffset,
   type ReminderOffset,
 } from '@/lib/push/reminder-offset';
 
@@ -71,7 +75,6 @@ export default function Home() {
   const [newTodoFolder, setNewTodoFolder] = useState('');
   const [newTodoTime, setNewTodoTime] = useState('');
   const [newTodoReminderEnabled, setNewTodoReminderEnabled] = useState(false);
-  const [newTodoReminderTime, setNewTodoReminderTime] = useState('');
   const [newTodoReminderOffset, setNewTodoReminderOffset] = useState<ReminderOffset>('30m');
   const [newTodoRepeating, setNewTodoRepeating] = useState<'' | Repeating>('');
   const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
@@ -152,10 +155,13 @@ export default function Home() {
     return `${h}:${m} Uhr`;
   };
 
-  const formatReminderTimeDisplay = (hhmm: string) => {
-    const [h, m] = hhmm.split(':');
-    if (!m || m === '00') return `${Number(h)} Uhr`;
-    return `${h}:${m}`;
+  const parseHhMmFromTodo = (todo: Todo) => {
+    if (todo.reminderTime) return todo.reminderTime;
+    if (!todo.time) return '';
+    const colon = todo.time.match(/^(\d{1,2}):(\d{2})/);
+    if (colon) return `${colon[1].padStart(2, '0')}:${colon[2]}`;
+    const match = todo.time.match(/(\d+)/);
+    return match ? `${String(match[1]).padStart(2, '0')}:00` : '';
   };
 
   /** Kalenderwoche Montag–Sonntag (deutsch) */
@@ -333,14 +339,13 @@ export default function Home() {
         delete next[todoId];
         return next;
       });
-    }, 700);
+    }, 900);
   };
 
-  const getTodoTitleStrikeClass = (todo: Todo) => {
-    const striking = Boolean(strikingTodoIds[todo.id]);
-    if (striking) return 'todo-title-strike is-striking';
-    if (todo.completed) return 'todo-title-strike is-struck';
-    return 'todo-title-strike';
+  const getTodoStrikeState = (todo: Todo): TodoStrikeState => {
+    if (strikingTodoIds[todo.id]) return 'striking';
+    if (todo.completed) return 'struck';
+    return 'idle';
   };
 
   const deleteTodo = (todoId: string) => {
@@ -375,20 +380,9 @@ export default function Home() {
     setEditingTodo(todo);
     setNewTodoText(todo.text);
     setNewTodoFolder(todo.folderId ?? '');
-    if (todo.time) {
-      const colon = todo.time.match(/^(\d{1,2}):(\d{2})/);
-      if (colon) {
-        setNewTodoTime(`${colon[1].padStart(2, '0')}:${colon[2]}`);
-      } else {
-        const match = todo.time.match(/(\d+)/);
-        setNewTodoTime(match ? `${String(match[1]).padStart(2, '0')}:00` : '');
-      }
-    } else {
-      setNewTodoTime('');
-    }
+    setNewTodoTime(parseHhMmFromTodo(todo));
     setNewTodoReminderEnabled(todo.reminderEnabled ?? false);
-    setNewTodoReminderTime(todo.reminderTime ?? '');
-    setNewTodoReminderOffset(todo.reminderOffset ?? '30m');
+    setNewTodoReminderOffset(normalizeReminderOffset(todo.reminderOffset));
     setAddTodoStep(4);
     setShowAddTodoModal(true);
     setTodoSwipeOffsets(prev => ({ ...prev, [todo.id]: 0 }));
@@ -526,9 +520,8 @@ export default function Home() {
     if (!newTodoText.trim()) return;
 
     const timeDisplay = newTodoTime ? formatTodoTimeDisplay(newTodoTime) : undefined;
-    const reminderEnabled = newTodoReminderEnabled;
-    const reminderTime =
-      reminderEnabled && newTodoReminderTime ? newTodoReminderTime : undefined;
+    const reminderEnabled = newTodoReminderEnabled && Boolean(newTodoTime);
+    const reminderTime = reminderEnabled ? newTodoTime : undefined;
     const reminderOffset = reminderEnabled ? newTodoReminderOffset : undefined;
     const folderId = newTodoFolder || undefined;
 
@@ -585,7 +578,6 @@ export default function Home() {
     setNewTodoFolder('');
     setNewTodoTime('');
     setNewTodoReminderEnabled(false);
-    setNewTodoReminderTime('');
     setNewTodoReminderOffset('30m');
     setNewTodoRepeating('');
     setAddTodoStep(1);
@@ -684,6 +676,14 @@ export default function Home() {
   const displayDay = currentView === 'chosen-day' ? chosenDayFromCalendar : selectedDay;
   const displayDayKey = formatDateString(displayDay);
   const displayWeekRange = useMemo(() => formatWeekRangeLine(displayDay), [displayDayKey]);
+
+  const isDisplayToday = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const day = new Date(displayDay);
+    day.setHours(0, 0, 0, 0);
+    return day.getTime() === today.getTime();
+  }, [displayDayKey]);
 
   const currentTodos = useMemo(
     () => getTodosForDay(displayDay),
@@ -806,15 +806,11 @@ export default function Home() {
                 {todo.time}
               </span>
             )}
-            {todo.reminderEnabled && todo.reminderTime && (
-              <span id={`todo-reminder-${todo.id}`} className={`text-xs text-[#7D7D7D] block ${todo.completed ? 'opacity-60' : ''}`}>
-                Erinnerung {formatReminderTimeDisplay(todo.reminderTime)} Uhr
-                {todo.reminderOffset ? ` · ${REMINDER_OFFSET_LABELS[todo.reminderOffset]}` : ''}
-              </span>
-            )}
-            <span id={`todo-text-${todo.id}`} className={`text-[#222222] block ${getTodoTitleStrikeClass(todo)}`}>
-              {todo.text}
-            </span>
+            <TodoStrikeTitle
+              id={`todo-text-${todo.id}`}
+              text={todo.text}
+              strikeState={getTodoStrikeState(todo)}
+            />
             {isOverdueTask && (
               <span
                 id={`todo-overdue-date-${todo.id}`}
@@ -837,6 +833,13 @@ export default function Home() {
     );
   };
 
+  const toggleFolderGroup = useCallback((groupKey: string) => {
+    setOpenFolderKeys((prev) => ({
+      ...prev,
+      [groupKey]: !prev[groupKey],
+    }));
+  }, []);
+
   const todoListNodes = todoFolderGroups.map((group) => {
     const fid = group.folderId || 'none';
     if (group.todos.length === 1) {
@@ -849,54 +852,18 @@ export default function Home() {
     const folderGroupKey = `${fid}|${displayDayKey}`;
     const isFolderOpen = !!openFolderKeys[folderGroupKey];
     return (
-      <div
+      <TodoFolderGroup
         key={`folder-group-${fid}-${displayDayKey}`}
-        id={`todo-folder-group-${fid}`}
-        className="rounded-lg overflow-hidden bg-white shadow-sm border border-gray-100 focus-within:ring-1 focus-within:ring-gray-200"
+        folderId={fid}
+        folderColor={folderColor}
+        folderName={folderName}
+        todoCount={group.todos.length}
+        groupKey={folderGroupKey}
+        isOpen={isFolderOpen}
+        onToggle={toggleFolderGroup}
       >
-        <button
-          type="button"
-          className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left text-[#222222] hover:bg-gray-50 transition-colors rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[#222222]"
-          aria-expanded={isFolderOpen}
-          onClick={() =>
-            setOpenFolderKeys((prev) => ({
-              ...prev,
-              [folderGroupKey]: !prev[folderGroupKey],
-            }))
-          }
-        >
-          <span className="flex items-center gap-2 min-w-0 flex-1">
-            <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: folderColor }} />
-            <span className="font-medium truncate">{folderName}</span>
-            <span className="text-sm text-[#7D7D7D] shrink-0">{group.todos.length} To-Dos</span>
-          </span>
-          <svg
-            className={`w-5 h-5 text-[#7D7D7D] shrink-0 transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none ${isFolderOpen ? 'rotate-180' : ''}`}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            aria-hidden
-          >
-            <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
-        <div
-          className="grid will-change-[grid-template-rows] motion-reduce:transition-none transition-[grid-template-rows] duration-[460ms] ease-[cubic-bezier(0.16,1,0.32,1)]"
-          style={{ gridTemplateRows: isFolderOpen ? '1fr' : '0fr' }}
-        >
-          <div className="min-h-0 overflow-hidden">
-            <div
-              className={`px-2 pb-2 pt-0 space-y-2 border-t border-gray-100 bg-[#F0F0F0] motion-reduce:transition-none transition-[opacity,transform] duration-400 ease-out ${
-                isFolderOpen ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-1 pointer-events-none'
-              }`}
-              style={{ transitionDelay: isFolderOpen ? '40ms' : '0ms' }}
-            >
-              {group.todos.map((todo, i) => renderTodoRow(todo, folderAnimStart + i))}
-            </div>
-          </div>
-        </div>
-      </div>
+        {group.todos.map((todo, i) => renderTodoRow(todo, folderAnimStart + i))}
+      </TodoFolderGroup>
     );
   });
 
@@ -1109,7 +1076,13 @@ export default function Home() {
                 />
               </button>
               
-              <div id="date-display" className="bg-[#222222] rounded-lg p-[clamp(1rem,2vw,3rem)] flex flex-col items-center justify-center day-view-content" key={displayDayKey}>
+              <div
+                id="date-display"
+                className={`bg-[#222222] rounded-lg p-[clamp(1rem,2vw,3rem)] flex flex-col items-center justify-center day-view-content ${
+                  isDisplayToday ? 'ring-2 ring-red-400/80' : ''
+                }`}
+                key={displayDayKey}
+              >
                 <span id="day-number" className="text-[clamp(3rem,8vw,9rem)] font-bold text-white leading-none mb-0">
                   {formatDate(displayDay)}
                 </span>
@@ -1126,7 +1099,6 @@ export default function Home() {
                   setNewTodoFolder('');
                   setNewTodoTime('');
                   setNewTodoReminderEnabled(false);
-                  setNewTodoReminderTime('');
                   setNewTodoReminderOffset('30m');
                   setNewTodoRepeating('');
                   setEditingTodo(null);
@@ -1604,86 +1576,79 @@ export default function Home() {
                           </>
                         )}
                         <div id="todo-time-field" className="w-full min-w-0 max-w-full">
-                          <label id="todo-time-label" className="block text-sm font-medium text-[#7D7D7D] mb-2">Zeit anzeigen (optional)</label>
+                          <label id="todo-time-label" className="block text-sm font-medium text-[#7D7D7D] mb-2">
+                            Zeit
+                          </label>
                           <div className="flex w-full min-w-0 justify-center sm:justify-start">
                             <input
                               id="todo-time-input"
                               type="time"
                               value={newTodoTime || ''}
-                              onChange={(e) => setNewTodoTime(e.target.value || '')}
+                              onChange={(e) => {
+                                const value = e.target.value || '';
+                                setNewTodoTime(value);
+                                if (!value) setNewTodoReminderEnabled(false);
+                              }}
                               className="box-border min-w-0 w-full max-w-[min(100%,10.5rem)] sm:max-w-none text-base px-3 py-3 sm:px-4 border-2 border-gray-200 rounded-xl text-[#222222] focus:border-[#222222] focus:outline-none transition-colors"
                             />
                           </div>
                         </div>
-                        <div id="todo-reminder-field" className="w-full min-w-0 max-w-full">
-                          <label id="todo-reminder-label" className="block text-sm font-medium text-[#7D7D7D] mb-2">Erinnerung</label>
-                          <div className="grid grid-cols-2 gap-2 mb-3">
+                        <div id="todo-reminder-field" className="w-full min-w-0 max-w-full rounded-2xl border border-gray-200 bg-[#FAFAFA] p-4">
+                          <div className="flex items-center justify-between gap-4">
+                            <div>
+                              <p id="todo-reminder-label" className="text-sm font-medium text-[#222222]">
+                                Erinnerung
+                              </p>
+                              <p className="text-xs text-[#7D7D7D] mt-0.5">
+                                Push-Benachrichtigung vor dem Termin
+                              </p>
+                            </div>
                             <button
                               type="button"
-                              id="reminder-option-none"
+                              id="reminder-toggle"
+                              role="switch"
+                              aria-checked={newTodoReminderEnabled}
+                              disabled={!newTodoTime}
                               onClick={() => {
-                                setNewTodoReminderEnabled(false);
-                                setNewTodoReminderTime('');
+                                if (!newTodoTime) return;
+                                setNewTodoReminderEnabled((v) => !v);
                               }}
-                              className={`min-h-[3.25rem] px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all ${
-                                !newTodoReminderEnabled
-                                  ? 'border-[#222222] bg-gray-50 text-[#222222]'
-                                  : 'border-gray-200 text-[#7D7D7D] hover:border-gray-300'
+                              className={`relative h-8 w-14 shrink-0 rounded-full transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#222222]/30 disabled:opacity-40 ${
+                                newTodoReminderEnabled ? 'bg-[#222222]' : 'bg-[#D3D3D3]'
                               }`}
                             >
-                              Keine
-                            </button>
-                            <button
-                              type="button"
-                              id="reminder-option-yes"
-                              onClick={() => setNewTodoReminderEnabled(true)}
-                              className={`min-h-[3.25rem] px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all ${
-                                newTodoReminderEnabled
-                                  ? 'border-[#222222] bg-gray-50 text-[#222222]'
-                                  : 'border-gray-200 text-[#7D7D7D] hover:border-gray-300'
-                              }`}
-                            >
-                              Ja, erinnern
+                              <span
+                                className={`absolute top-1 left-1 h-6 w-6 rounded-full bg-white shadow-sm transition-transform duration-200 ${
+                                  newTodoReminderEnabled ? 'translate-x-6' : 'translate-x-0'
+                                }`}
+                              />
                             </button>
                           </div>
-                          {newTodoReminderEnabled && (
-                            <div className="space-y-3">
-                              <div>
-                                <label htmlFor="todo-reminder-time-input" className="block text-xs font-medium text-[#7D7D7D] mb-2">
-                                  Termin-Uhrzeit
-                                </label>
-                                <div className="flex w-full min-w-0 justify-center sm:justify-start">
-                                  <input
-                                    id="todo-reminder-time-input"
-                                    type="time"
-                                    value={newTodoReminderTime || ''}
-                                    onChange={(e) => setNewTodoReminderTime(e.target.value || '')}
-                                    className="box-border min-w-0 w-full max-w-[min(100%,10.5rem)] sm:max-w-none text-base px-3 py-3 sm:px-4 border-2 border-gray-200 rounded-xl text-[#222222] focus:border-[#222222] focus:outline-none transition-colors"
-                                  />
-                                </div>
-                              </div>
-                              <div>
-                                <label className="block text-xs font-medium text-[#7D7D7D] mb-2">
-                                  Wann benachrichtigen?
-                                </label>
-                                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                                  {(['30m', '1h', '1d'] as const).map((offset) => (
-                                    <button
-                                      key={offset}
-                                      type="button"
-                                      onClick={() => setNewTodoReminderOffset(offset)}
-                                      className={`min-h-[3rem] px-3 py-2.5 rounded-xl border-2 text-sm font-medium transition-all ${
-                                        newTodoReminderOffset === offset
-                                          ? 'border-[#222222] bg-gray-50 text-[#222222]'
-                                          : 'border-gray-200 text-[#7D7D7D] hover:border-gray-300'
-                                      }`}
-                                    >
-                                      {REMINDER_OFFSET_LABELS[offset]}
-                                    </button>
-                                  ))}
-                                </div>
+                          {newTodoReminderEnabled && newTodoTime && (
+                            <div className="mt-4">
+                              <p className="text-xs font-medium text-[#7D7D7D] mb-2.5">Wann erinnern?</p>
+                              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                                {REMINDER_OFFSET_OPTIONS.map((offset) => (
+                                  <button
+                                    key={offset}
+                                    type="button"
+                                    onClick={() => setNewTodoReminderOffset(offset)}
+                                    className={`min-h-[2.75rem] rounded-xl border-2 px-2 py-2 text-xs font-semibold transition-colors sm:text-sm ${
+                                      newTodoReminderOffset === offset
+                                        ? 'border-[#222222] bg-[#222222] text-white'
+                                        : 'border-gray-200 bg-white text-[#7D7D7D] hover:border-gray-300 hover:text-[#222222]'
+                                    }`}
+                                  >
+                                    {REMINDER_OFFSET_SHORT[offset]}
+                                  </button>
+                                ))}
                               </div>
                             </div>
+                          )}
+                          {!newTodoTime && (
+                            <p className="mt-3 text-xs text-[#7D7D7D]">
+                              Bitte zuerst eine Zeit angeben, um eine Erinnerung zu aktivieren.
+                            </p>
                           )}
                         </div>
                         <div id="add-todo-actions" className="flex gap-3 pt-2">
@@ -1695,7 +1660,6 @@ export default function Home() {
                               setNewTodoFolder('');
                               setNewTodoTime('');
                               setNewTodoReminderEnabled(false);
-                              setNewTodoReminderTime('');
                               setNewTodoReminderOffset('30m');
                               setNewTodoRepeating('');
                               setEditingTodo(null);
@@ -1710,7 +1674,7 @@ export default function Home() {
                             onClick={addTodo}
                             disabled={
                               !newTodoText.trim() ||
-                              (newTodoReminderEnabled && !newTodoReminderTime)
+                              (newTodoReminderEnabled && !newTodoTime)
                             }
                             className="flex-1 px-4 py-3 bg-[#222222] text-white rounded-xl hover:bg-[#333333] transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                           >

@@ -28,6 +28,27 @@ body {
   }
 }
 
+@keyframes todoTitleStrikeLine1 {
+  from {
+    background-size: 0% 1px, 0% 1px;
+    opacity: 1;
+  }
+  to {
+    background-size: 100% 1px, 0% 1px;
+    opacity: 0.85;
+  }
+}
+
+@keyframes todoTitleStrikeLine2 {
+  from {
+    background-size: 0% 1px, 0% 1px;
+  }
+  to {
+    background-size: 0% 1px, 100% 1px;
+    opacity: 0.55;
+  }
+}
+
 .todo-title-strike {
   display: inline-block;
   max-width: 100%;
@@ -40,7 +61,19 @@ body {
   background-repeat: no-repeat;
   background-position: 0 54%;
   background-size: 0% 1px;
-  animation: todoTitleStrike 0.7s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: todoTitleStrike 0.65s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.todo-title-strike.is-striking.is-multiline[data-lines="2"] {
+  background-image:
+    linear-gradient(currentColor, currentColor),
+    linear-gradient(currentColor, currentColor);
+  background-repeat: no-repeat;
+  background-size: 0% 1px, 0% 1px;
+  background-position: 0 34%, 0 72%;
+  animation:
+    todoTitleStrikeLine1 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards,
+    todoTitleStrikeLine2 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.16s forwards;
 }
 
 .todo-title-strike.is-struck {
@@ -48,6 +81,15 @@ body {
   background-repeat: no-repeat;
   background-position: 0 54%;
   background-size: 100% 1px;
+  opacity: 0.55;
+}
+
+.todo-title-strike.is-struck.is-multiline[data-lines="2"] {
+  background-image:
+    linear-gradient(currentColor, currentColor),
+    linear-gradient(currentColor, currentColor);
+  background-size: 100% 1px, 100% 1px;
+  background-position: 0 34%, 0 72%;
   opacity: 0.55;
 }
 
