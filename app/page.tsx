@@ -660,7 +660,7 @@ export default function Home() {
     const dx = e.clientX - swipe.startX;
     const dy = e.clientY - swipe.startY;
     if (Math.abs(dx) < DAY_SWIPE_THRESHOLD_PX || Math.abs(dx) <= Math.abs(dy)) return;
-    navigateDisplayDay(dx < 0 ? 1 : -1);
+    navigateDisplayDay(dx > 0 ? 1 : -1);
   };
 
   const handleDaySwipePointerCancel = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -1090,7 +1090,7 @@ export default function Home() {
             onPointerCancel={handleDaySwipePointerCancel}
           >
             {/* Action Grid */}
-            <div id="action-grid" data-no-day-swipe className="grid grid-cols-3 gap-2 md:gap-3 lg:gap-4 xl:gap-6 2xl:gap-8">
+            <div id="action-grid" className="grid grid-cols-3 gap-2 md:gap-3 lg:gap-4 xl:gap-6 2xl:gap-8">
               <button
                 id="folder-filter-btn"
                 onClick={() => {
@@ -1109,11 +1109,11 @@ export default function Home() {
                 />
               </button>
               
-              <div id="date-display" className="bg-white rounded-lg p-[clamp(1rem,2vw,3rem)] flex flex-col items-center justify-center day-view-content" key={displayDayKey}>
-                <span id="day-number" className="text-[clamp(3rem,8vw,9rem)] font-bold text-[#222222] leading-none mb-0">
+              <div id="date-display" className="bg-[#222222] rounded-lg p-[clamp(1rem,2vw,3rem)] flex flex-col items-center justify-center day-view-content" key={displayDayKey}>
+                <span id="day-number" className="text-[clamp(3rem,8vw,9rem)] font-bold text-white leading-none mb-0">
                   {formatDate(displayDay)}
                 </span>
-                <span id="month-name" className="text-[clamp(0.875rem,1.5vw,2.25rem)] text-[#7D7D7D]">
+                <span id="month-name" className="text-[clamp(0.875rem,1.5vw,2.25rem)] text-white/80">
                   {months[displayDay.getMonth()]}
                 </span>
               </div>
