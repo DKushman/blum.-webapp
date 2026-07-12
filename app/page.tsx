@@ -8,7 +8,6 @@ import {
   type BlumeEntryArea,
 } from '@/components/EntryModePicker';
 import { FitnessDashboard } from '@/components/FitnessDashboard';
-import { PushNotificationBanner } from '@/components/PushNotificationBanner';
 import { TodoDetailSheet } from '@/components/TodoDetailSheet';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
 import {
@@ -80,6 +79,11 @@ export default function Home() {
     tracking: boolean;
   }>({ pointerId: null, startX: 0, startY: 0, tracking: false });
   const notepadInputRef = useRef<HTMLTextAreaElement>(null);
+  const notepadScrollRef = useRef<HTMLDivElement>(null);
+  const longPressRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; triggered: boolean }>({
+    timer: null,
+    triggered: false,
+  });
 
   const [entryArea, setEntryArea] = useState<EntryRoute>('hydrating');
 
@@ -275,6 +279,34 @@ export default function Home() {
     setTodoToDelete(null);
   };
 
+  const toggleTodoComplete = (todoId: string) => {
+    const todo = todos.find((item) => item.id === todoId);
+    if (!todo) return;
+
+    if (todo.completed) {
+      setTodos(
+        todos.map((item) =>
+          item.id === todoId
+            ? { ...item, completed: false, completedOn: undefined }
+            : item
+        )
+      );
+      return;
+    }
+
+    const completedDay =
+      currentView === 'chosen-day' ? chosenDayFromCalendar : selectedDay;
+    const completedDayStr = formatDateString(completedDay);
+
+    setTodos((prev) =>
+      prev.map((item) =>
+        item.id === todoId
+          ? { ...item, completed: true, completedOn: completedDayStr }
+          : item
+      )
+    );
+  };
+
   const deleteTodoSeries = (seriesId: string) => {
     setTodos(todos.filter(todo => todo.seriesId !== seriesId));
     setShowDeleteTodoModal(false);
@@ -360,6 +392,7 @@ export default function Home() {
   const addInlineTodo = () => {
     if (!inlineNewTodoText.trim()) return;
 
+    const scrollTop = notepadScrollRef.current?.scrollTop ?? 0;
     const dateToUse = currentView === 'chosen-day' ? chosenDayFromCalendar : selectedDay;
     const newTodo: Todo = {
       id: Date.now().toString(),
@@ -369,7 +402,39 @@ export default function Home() {
     };
     setTodos([...todos, newTodo]);
     setInlineNewTodoText('');
-    requestAnimationFrame(() => notepadInputRef.current?.focus());
+    requestAnimationFrame(() => {
+      if (notepadScrollRef.current) {
+        notepadScrollRef.current.scrollTop = scrollTop;
+      }
+    });
+  };
+
+  const clearLongPress = () => {
+    if (longPressRef.current.timer) {
+      clearTimeout(longPressRef.current.timer);
+      longPressRef.current.timer = null;
+    }
+  };
+
+  const handleTodoPointerDown = (todo: Todo) => {
+    longPressRef.current.triggered = false;
+    clearLongPress();
+    longPressRef.current.timer = setTimeout(() => {
+      longPressRef.current.triggered = true;
+      openTodoSheet(todo);
+    }, 480);
+  };
+
+  const handleTodoPointerUp = (todo: Todo) => {
+    const wasLongPress = longPressRef.current.triggered;
+    clearLongPress();
+    if (!wasLongPress) {
+      toggleTodoComplete(todo.id);
+    }
+  };
+
+  const focusNotepadInput = () => {
+    notepadInputRef.current?.focus({ preventScroll: true });
   };
 
   const getWeekdayName = (date: Date) => {
@@ -479,23 +544,41 @@ export default function Home() {
   );
 
   const renderTodoRow = (todo: Todo) => (
-    <button
+    <div
       key={`${formatDateString(displayDay)}-${todo.id}`}
-      type="button"
       id={`todo-item-${todo.id}`}
       data-todo-row
-      onClick={() => openTodoSheet(todo)}
-      className={`notepad-line-item block w-full text-left text-[14px] text-[#222222] bg-transparent transition-opacity hover:opacity-70 ${
-        todo.completed ? 'line-through opacity-35' : ''
-      }`}
+      className="notepad-line-item flex items-center gap-2.5"
     >
-      {todo.text}
-      {(todo.reminderEnabled || todo.time) && (
-        <span className="ml-1.5 text-[11px] text-[#9A9A9A]">
-          {todo.time ?? ''}
-        </span>
-      )}
-    </button>
+      <button
+        type="button"
+        id={`todo-circle-${todo.id}`}
+        onClick={() => toggleTodoComplete(todo.id)}
+        className={`mt-[5px] h-[13px] w-[13px] shrink-0 rounded-full border transition-all duration-200 ${
+          todo.completed
+            ? 'border-[#222222] bg-[#222222]'
+            : 'border-[#222222]/35 bg-transparent hover:border-[#222222]/55'
+        }`}
+        aria-label={todo.completed ? 'Als offen markieren' : 'Als erledigt markieren'}
+      />
+      <button
+        type="button"
+        onPointerDown={() => handleTodoPointerDown(todo)}
+        onPointerUp={() => handleTodoPointerUp(todo)}
+        onPointerCancel={clearLongPress}
+        onPointerLeave={clearLongPress}
+        className={`min-w-0 flex-1 text-left text-[14px] text-[#222222] bg-transparent transition-all duration-200 ${
+          todo.completed ? 'line-through opacity-40' : ''
+        }`}
+      >
+        {todo.text}
+        {(todo.reminderEnabled || todo.time) && (
+          <span className="ml-1.5 text-[11px] text-[#9A9A9A] no-underline">
+            {todo.time ?? ''}
+          </span>
+        )}
+      </button>
+    </div>
   );
 
   const todoListNodes = currentTodos.map((todo) => renderTodoRow(todo));
@@ -567,19 +650,6 @@ export default function Home() {
   return (
     <main id="main-container" className="notepad-app pb-[calc(5rem+env(safe-area-inset-bottom,0px))]">
       <div id="app-wrapper" className="max-w-md mx-auto">
-        <PushNotificationBanner
-          status={push.status}
-          isSubscribed={push.isSubscribed}
-          error={push.error}
-          syncStatus={push.syncStatus}
-          onSubscribe={() => {
-            void push.subscribe();
-          }}
-          onUnsubscribe={() => {
-            void push.unsubscribe();
-          }}
-          canUsePush={push.canUsePush}
-        />
 
         {/* Dashboard View and Chosen Day View */}
         {(currentView === 'dashboard' || currentView === 'chosen-day') && (
