@@ -1,10 +1,12 @@
 @import "tailwindcss";
 
 :root {
-  --background: #F0F0F0;
+  --background: #F5F2EA;
   --foreground: #222222;
   --secondary: #7D7D7D;
   --font-chillax: var(--font-chillax);
+  --notepad-line: rgba(0, 0, 0, 0.045);
+  --notepad-bg: #FAF8F0;
 }
 
 body {
@@ -18,37 +20,49 @@ body {
 }
 
 .liquid-glass-nav,
-.liquid-glass-top-bar {
-  background: rgba(255, 255, 255, 0.62);
-  backdrop-filter: blur(22px) saturate(180%);
-  -webkit-backdrop-filter: blur(22px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.72);
+.liquid-glass-top-bar,
+.liquid-glass-header,
+.liquid-glass-sheet {
+  background: rgba(255, 255, 255, 0.58);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.7);
   box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+    0 4px 24px rgba(0, 0, 0, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
 }
 
-.notepad-paper {
-  background: linear-gradient(180deg, #fffef8 0%, #fff9e8 100%);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  border-radius: 16px;
+.liquid-glass-header {
+  border-radius: 9999px;
+}
+
+.liquid-glass-sheet {
+  border-bottom: none;
   box-shadow:
-    0 2px 12px rgba(0, 0, 0, 0.04),
+    0 -8px 40px rgba(0, 0, 0, 0.1),
     inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.notepad-app {
+  background: var(--notepad-bg);
+  min-height: 100dvh;
+}
+
+.notepad-surface {
+  background-color: var(--notepad-bg);
   background-image: repeating-linear-gradient(
     transparent,
-    transparent 31px,
-    rgba(0, 0, 0, 0.04) 31px,
-    rgba(0, 0, 0, 0.04) 32px
+    transparent 27px,
+    var(--notepad-line) 27px,
+    var(--notepad-line) 28px
   );
-  background-position: 0 48px;
-  min-height: clamp(280px, 50vh, 520px);
+  background-position: 0 20px;
+  min-height: calc(100dvh - 7rem);
 }
 
-.notepad-paper:focus-within {
-  box-shadow:
-    0 4px 20px rgba(0, 0, 0, 0.06),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+.notepad-line-item {
+  min-height: 28px;
+  line-height: 28px;
 }
 
 .day-view-content {
@@ -58,10 +72,19 @@ body {
 @keyframes dayViewIn {
   from {
     opacity: 0.72;
-    transform: translateX(10px);
+    transform: translateX(8px);
   }
   to {
     opacity: 1;
     transform: translateX(0);
+  }
+}
+
+@keyframes sheetUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
   }
 }
