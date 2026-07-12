@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, Fragment, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   BLUME_ENTRY_AREA_KEY,
   EntryModePicker,
@@ -9,7 +9,6 @@ import {
 } from '@/components/EntryModePicker';
 import { FitnessDashboard } from '@/components/FitnessDashboard';
 import { PushNotificationBanner } from '@/components/PushNotificationBanner';
-import { TodoFolderGroup } from '@/components/TodoFolderGroup';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
 import {
   REMINDER_OFFSET_OPTIONS,
@@ -60,10 +59,10 @@ export default function Home() {
   const [selectedDay, setSelectedDay] = useState<Date>(new Date());
   const [chosenDayFromCalendar, setChosenDayFromCalendar] = useState<Date>(new Date()); // Last day chosen from monthly overview
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
-  const [selectedFolderFilters, setSelectedFolderFilters] = useState<string[]>([]);
-  const [showFilterModal, setShowFilterModal] = useState(false);
   const [showFolderModal, setShowFolderModal] = useState(false);
-  const [filterModalCheckedIds, setFilterModalCheckedIds] = useState<Set<string>>(new Set());
+  const [inlineNewTodoText, setInlineNewTodoText] = useState('');
+  const [editingInlineTodoId, setEditingInlineTodoId] = useState<string | null>(null);
+  const [editingInlineText, setEditingInlineText] = useState('');
   const [showAddFolderFromTodoModal, setShowAddFolderFromTodoModal] = useState(false);
   const [addTodoStep, setAddTodoStep] = useState<1 | 2 | 3 | 4>(1);
   const [showAddTodoModal, setShowAddTodoModal] = useState(false);
@@ -79,25 +78,17 @@ export default function Home() {
   const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
   const [showDeleteTodoModal, setShowDeleteTodoModal] = useState(false);
   const [todoToDelete, setTodoToDelete] = useState<Todo | null>(null);
-  const [todoSwipeOffsets, setTodoSwipeOffsets] = useState<Record<string, number>>({});
-  const [swipeStartX, setSwipeStartX] = useState<number | null>(null);
-  const [swipeStartY, setSwipeStartY] = useState<number | null>(null);
-  const [swipeTodoId, setSwipeTodoId] = useState<string | null>(null);
-  const [datePickForTodoId, setDatePickForTodoId] = useState<string | null>(null); // Beim Bearbeiten: Tag auswählen zum Verschieben
+  const [datePickForTodoId, setDatePickForTodoId] = useState<string | null>(null);
 
-  const SWIPE_ACTION_WIDTH = 140;
   const DAY_SWIPE_THRESHOLD_PX = 48;
-
-  const mouseDragRef = useRef<{ todoId: string; startX: number; offset: number } | null>(null);
-  const didMouseDragRef = useRef(false);
   const daySwipeRef = useRef<{
     pointerId: number | null;
     startX: number;
     startY: number;
     tracking: boolean;
   }>({ pointerId: null, startX: 0, startY: 0, tracking: false });
+  const notepadInputRef = useRef<HTMLTextAreaElement>(null);
 
-  const [openFolderKeys, setOpenFolderKeys] = useState<Record<string, boolean>>({});
   const [entryArea, setEntryArea] = useState<EntryRoute>('hydrating');
 
   // Load folders from localStorage on mount
@@ -197,11 +188,6 @@ export default function Home() {
     const isToday = selectedDate.getTime() === today.getTime();
     
     const filtered = todos.filter(todo => {
-      if (selectedFolderFilters.length > 0) {
-        const folderId = todo.folderId ?? '';
-        if (!selectedFolderFilters.includes(folderId)) return false;
-      }
-      
       const todoDate = new Date(todo.date + 'T00:00:00');
       todoDate.setHours(0, 0, 0, 0);
 
@@ -302,12 +288,9 @@ export default function Home() {
   const deleteFolder = (folderId: string) => {
     setFolders(folders.filter(f => f.id !== folderId));
     setTodos(todos.map(t => t.folderId === folderId ? { ...t, folderId: undefined } : t));
-    setSelectedFolderFilters(prev => prev.filter(id => id !== folderId));
   };
 
   const toggleTodoComplete = (todoId: string) => {
-    if (getSwipeOffset(todoId) < 0) return;
-
     const todo = todos.find((item) => item.id === todoId);
     if (!todo) return;
 
@@ -337,18 +320,12 @@ export default function Home() {
 
   const deleteTodo = (todoId: string) => {
     setTodos(todos.filter(todo => todo.id !== todoId));
-    setTodoSwipeOffsets(prev => ({ ...prev, [todoId]: 0 }));
     setShowDeleteTodoModal(false);
     setTodoToDelete(null);
   };
 
   const deleteTodoSeries = (seriesId: string) => {
     setTodos(todos.filter(todo => todo.seriesId !== seriesId));
-    setTodoSwipeOffsets(prev => {
-      const next = { ...prev };
-      todos.filter(t => t.seriesId === seriesId).forEach(t => { next[t.id] = 0; });
-      return next;
-    });
     setShowDeleteTodoModal(false);
     setTodoToDelete(null);
   };
@@ -372,86 +349,8 @@ export default function Home() {
     setNewTodoReminderOffset(normalizeReminderOffset(todo.reminderOffset));
     setAddTodoStep(4);
     setShowAddTodoModal(true);
-    setTodoSwipeOffsets(prev => ({ ...prev, [todo.id]: 0 }));
   };
 
-  const getSwipeOffset = (todoId: string) => todoSwipeOffsets[todoId] ?? 0;
-
-  const handleSwipeStart = (todoId: string, clientX: number, clientY?: number) => {
-    setSwipeStartX(clientX);
-    setSwipeStartY(clientY ?? null);
-    setSwipeTodoId(todoId);
-    didMouseDragRef.current = false;
-    mouseDragRef.current = { todoId, startX: clientX, offset: getSwipeOffset(todoId) };
-  };
-
-  const handleSwipeMove = (todoId: string, clientX: number, clientY?: number) => {
-    const ref = mouseDragRef.current;
-    const startX = ref?.todoId === todoId ? ref.startX : swipeStartX;
-    if ((swipeTodoId !== todoId && ref?.todoId !== todoId) || startX === null) return;
-    const current = ref?.todoId === todoId ? ref.offset : getSwipeOffset(todoId);
-    const diff = clientX - startX; // negative when swiping left
-    const newOffset = Math.min(0, Math.max(-SWIPE_ACTION_WIDTH, current + diff));
-    setTodoSwipeOffsets(prev => ({ ...prev, [todoId]: newOffset }));
-    setSwipeStartX(clientX);
-    if (clientY !== undefined) setSwipeStartY(clientY);
-    if (mouseDragRef.current?.todoId === todoId) {
-      mouseDragRef.current.startX = clientX;
-      mouseDragRef.current.offset = newOffset;
-    }
-  };
-
-  const handleSwipeEnd = (todoId: string) => {
-    const offset = getSwipeOffset(todoId);
-    const snapOpen = offset < -SWIPE_ACTION_WIDTH / 2;
-    setTodoSwipeOffsets(prev => ({ ...prev, [todoId]: snapOpen ? -SWIPE_ACTION_WIDTH : 0 }));
-    setSwipeStartX(null);
-    setSwipeStartY(null);
-    setSwipeTodoId(null);
-    mouseDragRef.current = null;
-  };
-
-  // Document-level mouse listeners so drag-to-swipe works when cursor leaves the row (e.g. on laptop)
-  useEffect(() => {
-    if (!swipeTodoId) return;
-
-    const onDocMouseMove = (e: MouseEvent) => {
-      const ref = mouseDragRef.current;
-      if (!ref || ref.todoId !== swipeTodoId) return;
-      didMouseDragRef.current = true;
-      const diff = e.clientX - ref.startX;
-      const newOffset = Math.min(0, Math.max(-SWIPE_ACTION_WIDTH, ref.offset + diff));
-      setTodoSwipeOffsets(prev => ({ ...prev, [ref.todoId]: newOffset }));
-      ref.startX = e.clientX;
-      ref.offset = newOffset;
-    };
-
-    const onDocMouseUp = () => {
-      const ref = mouseDragRef.current;
-      if (!ref) return;
-      const snapOpen = ref.offset < -SWIPE_ACTION_WIDTH / 2;
-      setTodoSwipeOffsets(prev => ({ ...prev, [ref.todoId]: snapOpen ? -SWIPE_ACTION_WIDTH : 0 }));
-      setSwipeStartX(null);
-      setSwipeStartY(null);
-      setSwipeTodoId(null);
-      mouseDragRef.current = null;
-    };
-
-    document.addEventListener('mousemove', onDocMouseMove);
-    document.addEventListener('mouseup', onDocMouseUp);
-    return () => {
-      document.removeEventListener('mousemove', onDocMouseMove);
-      document.removeEventListener('mouseup', onDocMouseUp);
-    };
-  }, [swipeTodoId]);
-
-  useEffect(() => {
-    setOpenFolderKeys({});
-  }, [
-    currentView,
-    selectedDay.getTime(),
-    chosenDayFromCalendar.getTime(),
-  ]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -462,18 +361,6 @@ export default function Home() {
       setEntryArea('picker');
     }
   }, []);
-
-  // On mobile: prevent default touch behavior when user is swiping horizontally (so page doesn't scroll)
-  const handleTouchMove = (e: React.TouchEvent, todoId: string) => {
-    if (swipeTodoId !== todoId || swipeStartX === null || swipeStartY === null) return;
-    const touch = e.touches[0];
-    const deltaX = Math.abs(touch.clientX - swipeStartX);
-    const deltaY = Math.abs(touch.clientY - swipeStartY);
-    if (deltaX > deltaY && deltaX > 5) {
-      e.preventDefault();
-    }
-    handleSwipeMove(todoId, touch.clientX, touch.clientY);
-  };
 
   const getDatesForRepeating = (startDate: Date, repeating: Repeating): Date[] => {
     const dates: Date[] = [];
@@ -569,6 +456,38 @@ export default function Home() {
     setNewTodoRepeating('');
     setAddTodoStep(1);
     setShowAddTodoModal(false);
+  };
+
+  const addInlineTodo = () => {
+    if (!inlineNewTodoText.trim()) return;
+
+    const dateToUse = currentView === 'chosen-day' ? chosenDayFromCalendar : selectedDay;
+    const newTodo: Todo = {
+      id: Date.now().toString(),
+      text: inlineNewTodoText.trim(),
+      date: formatDateString(dateToUse),
+      completed: false,
+    };
+    setTodos([...todos, newTodo]);
+    setInlineNewTodoText('');
+    requestAnimationFrame(() => notepadInputRef.current?.focus());
+  };
+
+  const saveInlineEdit = (todoId: string) => {
+    const trimmed = editingInlineText.trim();
+    if (!trimmed) {
+      deleteTodo(todoId);
+    } else {
+      setTodos(todos.map(todo => todo.id === todoId ? { ...todo, text: trimmed } : todo));
+    }
+    setEditingInlineTodoId(null);
+    setEditingInlineText('');
+  };
+
+  const getWeekdayName = (date: Date) => {
+    const dayOfWeek = date.getDay();
+    const weekdayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    return weekdays[weekdayIndex];
   };
 
 
@@ -674,7 +593,7 @@ export default function Home() {
 
   const currentTodos = useMemo(
     () => getTodosForDay(displayDay),
-    [todos, displayDayKey, selectedFolderFilters]
+    [todos, displayDayKey]
   );
 
   const monthTodos = useMemo(
@@ -687,173 +606,123 @@ export default function Home() {
     [currentMonth.getFullYear(), currentMonth.getMonth()]
   );
 
-  const todoFolderGroups = useMemo(() => {
-    const folderKeyOrder: string[] = [];
-    const todosByFolder = new Map<string, Todo[]>();
-    for (const todo of currentTodos) {
-      const key = todo.folderId ?? '';
-      if (!todosByFolder.has(key)) {
-        todosByFolder.set(key, []);
-        folderKeyOrder.push(key);
-      }
-      todosByFolder.get(key)!.push(todo);
-    }
-    return folderKeyOrder.map((folderId) => ({
-      folderId,
-      todos: todosByFolder.get(folderId)!,
-    }));
-  }, [currentTodos]);
-
   let todoListAnimIndex = 0;
   const renderTodoRow = (todo: Todo, animIndex?: number) => {
     const index = animIndex !== undefined ? animIndex : todoListAnimIndex++;
     const folderColor = getFolderColor(todo.folderId);
     const isOverdueTask = isOverdue(todo) && !todo.completed;
-    const swipeOffset = getSwipeOffset(todo.id);
-    const isSwipedOpen = swipeOffset < 0;
+    const isEditing = editingInlineTodoId === todo.id;
 
     return (
       <div
         key={`${formatDateString(displayDay)}-${todo.id}`}
         id={`todo-item-wrapper-${todo.id}`}
         data-todo-row
-        className="rounded-lg overflow-hidden relative"
+        className="group relative flex items-start gap-3 px-1 py-1.5 min-h-[32px]"
         style={{
-          animation: `slideUpFromBottom 0.4s cubic-bezier(0.4, 0, 0.2, 1) ${index * 0.05}s both`,
+          animation: `slideUpFromBottom 0.35s cubic-bezier(0.4, 0, 0.2, 1) ${index * 0.04}s both`,
         }}
       >
-        <div
-          id={`todo-actions-${todo.id}`}
-          className="absolute right-0 top-0 bottom-0 w-[140px] flex z-0 rounded-r-lg overflow-hidden"
-        >
-          <button
-            id={`edit-todo-${todo.id}`}
-            onClick={() => startEditTodo(todo)}
-            className="flex-1 flex items-center justify-center bg-[#222222] text-white text-xs font-medium hover:bg-[#333333] transition-colors rounded-l-lg"
-          >
-            Bearbeiten
-          </button>
-          <button
-            id={`delete-todo-${todo.id}`}
-            onClick={() => requestDeleteTodo(todo)}
-            className="flex-1 flex items-center justify-center bg-red-500 text-white text-xs font-medium hover:bg-red-600 transition-colors rounded-r-lg"
-          >
-            Löschen
-          </button>
-        </div>
-
-        <div
-          id={`todo-item-${todo.id}`}
-          className={`relative z-10 rounded-lg p-4 flex items-center gap-3 cursor-pointer hover:bg-gray-50 transition-transform duration-200 ease-out ${
-            isOverdueTask ? 'bg-red-50' : 'bg-white'
+        <button
+          type="button"
+          id={`todo-circle-${todo.id}`}
+          onClick={() => toggleTodoComplete(todo.id)}
+          className={`mt-0.5 w-[22px] h-[22px] rounded-full border-[1.5px] flex-shrink-0 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[#222222]/30 ${
+            todo.completed ? 'border-transparent' : ''
           }`}
           style={{
-            transform: `translateX(${swipeOffset}px)`,
-            touchAction: 'pan-y',
+            borderColor: isOverdueTask ? '#EF4444' : folderColor,
+            backgroundColor: todo.completed ? (isOverdueTask ? '#EF4444' : folderColor) : 'transparent',
           }}
-          onClick={() => {
-            if (didMouseDragRef.current) {
-              didMouseDragRef.current = false;
-              return;
-            }
-            if (!isSwipedOpen) toggleTodoComplete(todo.id);
-          }}
-          onTouchStart={(e) => handleSwipeStart(todo.id, e.touches[0].clientX, e.touches[0].clientY)}
-          onTouchMove={(e) => handleTouchMove(e, todo.id)}
-          onTouchEnd={() => handleSwipeEnd(todo.id)}
-          onMouseDown={(e) => {
-            e.preventDefault();
-            handleSwipeStart(todo.id, e.clientX);
-          }}
-          onMouseMove={(e) => {
-            if (swipeTodoId === todo.id && e.buttons === 1) {
-              didMouseDragRef.current = true;
-              handleSwipeMove(todo.id, e.clientX);
-            }
-          }}
-          onMouseUp={() => handleSwipeEnd(todo.id)}
-          onMouseLeave={() => {
-            if (swipeTodoId === todo.id) handleSwipeEnd(todo.id);
-          }}
-        >
-          <div
-            id={`todo-circle-${todo.id}`}
-            className={`w-5 h-5 rounded-full border-2 flex-shrink-0 transition-all ${
-              todo.completed ? '' : ''
-            }`}
-            style={{
-              borderColor: isOverdueTask ? '#EF4444' : folderColor,
-              backgroundColor: todo.completed ? (isOverdueTask ? '#EF4444' : folderColor) : 'transparent',
-            }}
-          />
+          aria-label={todo.completed ? 'Als offen markieren' : 'Als erledigt markieren'}
+        />
 
-          <div id={`todo-content-${todo.id}`} className="flex-1 min-w-0">
-            {todo.time && (
-              <span id={`todo-time-${todo.id}`} className={`text-xs text-[#7D7D7D] block ${todo.completed ? 'opacity-60' : ''}`}>
-                {todo.time}
-              </span>
-            )}
-            <span
+        <div id={`todo-content-${todo.id}`} className="flex-1 min-w-0 pt-0.5">
+          {todo.time && !isEditing && (
+            <span id={`todo-time-${todo.id}`} className={`text-xs text-[#7D7D7D] block ${todo.completed ? 'opacity-50' : ''}`}>
+              {todo.time}
+            </span>
+          )}
+          {isEditing ? (
+            <textarea
+              value={editingInlineText}
+              onChange={(e) => {
+                setEditingInlineText(e.target.value);
+                const ta = e.target;
+                ta.style.height = 'auto';
+                ta.style.height = `${ta.scrollHeight}px`;
+              }}
+              onBlur={() => saveInlineEdit(todo.id)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  saveInlineEdit(todo.id);
+                }
+                if (e.key === 'Escape') {
+                  setEditingInlineTodoId(null);
+                  setEditingInlineText('');
+                }
+              }}
+              className="w-full bg-transparent text-[#222222] text-[17px] leading-[1.45] resize-none overflow-hidden outline-none border-none p-0"
+              rows={1}
+              autoFocus
+            />
+          ) : (
+            <button
+              type="button"
               id={`todo-text-${todo.id}`}
-              className={`block text-[#222222] ${todo.completed ? 'line-through opacity-55' : ''}`}
+              onClick={() => {
+                setEditingInlineTodoId(todo.id);
+                setEditingInlineText(todo.text);
+              }}
+              className={`block w-full text-left text-[17px] leading-[1.45] text-[#222222] bg-transparent ${
+                todo.completed ? 'line-through opacity-45' : ''
+              } ${isOverdueTask ? 'text-red-600' : ''}`}
             >
               {todo.text}
+            </button>
+          )}
+          {isOverdueTask && !isEditing && (
+            <span
+              id={`todo-overdue-date-${todo.id}`}
+              className="block text-xs text-red-500 mt-0.5 text-left tabular-nums"
+            >
+              {getOverdueOriginalDate(todo)}
             </span>
-            {isOverdueTask && (
-              <span
-                id={`todo-overdue-date-${todo.id}`}
-                className="block text-xs text-red-500 mt-1 text-left tabular-nums"
-              >
-                {getOverdueOriginalDate(todo)}
-              </span>
-            )}
-          </div>
+          )}
+        </div>
 
-          <div
-            id={`todo-tag-${todo.id}`}
-            className="px-2 py-1 rounded text-xs text-white flex-shrink-0"
-            style={{ backgroundColor: folderColor }}
+        <div className="flex items-center gap-0.5 shrink-0">
+          <button
+            type="button"
+            id={`edit-todo-${todo.id}`}
+            onClick={() => startEditTodo(todo)}
+            className="mt-0.5 p-1 rounded-md text-[#7D7D7D] opacity-50 sm:opacity-0 sm:group-hover:opacity-100 hover:text-[#222222] transition-opacity"
+            aria-label="Details bearbeiten"
           >
-            {getFolderName(todo.folderId)}
-          </div>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="1" />
+              <circle cx="19" cy="12" r="1" />
+              <circle cx="5" cy="12" r="1" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            id={`delete-todo-${todo.id}`}
+            onClick={() => requestDeleteTodo(todo)}
+            className="mt-0.5 p-1 rounded-md text-[#7D7D7D] opacity-50 sm:opacity-0 sm:group-hover:opacity-100 hover:text-red-500 transition-opacity"
+            aria-label="Löschen"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
         </div>
       </div>
     );
   };
 
-  const toggleFolderGroup = useCallback((groupKey: string) => {
-    setOpenFolderKeys((prev) => ({
-      ...prev,
-      [groupKey]: !prev[groupKey],
-    }));
-  }, []);
-
-  const todoListNodes = todoFolderGroups.map((group) => {
-    const fid = group.folderId || 'none';
-    if (group.todos.length === 1) {
-      return <Fragment key={`single-${fid}-${group.todos[0].id}`}>{renderTodoRow(group.todos[0])}</Fragment>;
-    }
-    const folderAnimStart = todoListAnimIndex;
-    todoListAnimIndex += group.todos.length;
-    const folderColor = getFolderColor(group.folderId);
-    const folderName = getFolderName(group.folderId);
-    const folderGroupKey = `${fid}|${displayDayKey}`;
-    const isFolderOpen = !!openFolderKeys[folderGroupKey];
-    return (
-      <TodoFolderGroup
-        key={`folder-group-${fid}-${displayDayKey}`}
-        folderId={fid}
-        folderColor={folderColor}
-        folderName={folderName}
-        todoCount={group.todos.length}
-        groupKey={folderGroupKey}
-        isOpen={isFolderOpen}
-        onToggle={toggleFolderGroup}
-      >
-        {group.todos.map((todo, i) => renderTodoRow(todo, folderAnimStart + i))}
-      </TodoFolderGroup>
-    );
-  });
+  const todoListNodes = currentTodos.map((todo) => renderTodoRow(todo));
 
   if (entryArea === 'hydrating') {
     return (
@@ -1039,46 +908,29 @@ export default function Home() {
         {(currentView === 'dashboard' || currentView === 'chosen-day') && (
           <div
             id="dashboard-view"
-            className="space-y-[clamp(1rem,3vw,3rem)] touch-pan-y"
+            className="space-y-4 touch-pan-y"
             onPointerDown={handleDaySwipePointerDown}
             onPointerUp={handleDaySwipePointerUp}
             onPointerCancel={handleDaySwipePointerCancel}
           >
-            {/* Action Grid */}
-            <div id="action-grid" className="grid grid-cols-3 gap-2 md:gap-3 lg:gap-4 xl:gap-6 2xl:gap-8">
-              <button
-                id="folder-filter-btn"
-                onClick={() => {
-                  setFilterModalCheckedIds(new Set(selectedFolderFilters));
-                  setShowFilterModal(true);
-                }}
-                className="bg-white rounded-lg p-[clamp(1rem,2vw,3rem)] flex items-center justify-center hover:bg-gray-50 transition-colors"
-              >
-                <img
-                  id="filter-icon"
-                  src="/filter.png"
-                  alt="Filter"
-                  width={24}
-                  height={24}
-                  className="object-contain w-[clamp(1.5rem,3vw,4rem)] h-[clamp(1.5rem,3vw,4rem)]"
-                />
-              </button>
-              
+            {/* Liquid Glass Top Bar — Datum & + */}
+            <div
+              id="top-glass-bar"
+              className="liquid-glass-top-bar flex items-center justify-between rounded-[28px] px-5 py-3.5"
+            >
               <div
                 id="date-display"
-                className={`bg-[#222222] rounded-lg p-[clamp(1rem,2vw,3rem)] flex flex-col items-center justify-center day-view-content ${
-                  isDisplayToday ? 'ring-2 ring-red-400/80' : ''
-                }`}
+                className={`flex flex-col day-view-content ${isDisplayToday ? 'text-[#222222]' : 'text-[#222222]'}`}
                 key={displayDayKey}
               >
-                <span id="day-number" className="text-[clamp(3rem,8vw,9rem)] font-bold text-white leading-none mb-0">
-                  {formatDate(displayDay)}
+                <span id="day-number" className="text-[clamp(1.75rem,5vw,2.5rem)] font-bold leading-none tracking-tight">
+                  {displayDay.getDate()}.
                 </span>
-                <span id="month-name" className="text-[clamp(0.875rem,1.5vw,2.25rem)] text-white/80">
-                  {months[displayDay.getMonth()]}
+                <span id="month-name" className="text-[clamp(0.8rem,2vw,0.95rem)] text-[#7D7D7D] font-medium mt-0.5">
+                  {getWeekdayName(displayDay)}, {months[displayDay.getMonth()]}
                 </span>
               </div>
-              
+
               <button
                 id="quick-add-btn"
                 onClick={() => {
@@ -1092,116 +944,12 @@ export default function Home() {
                   setEditingTodo(null);
                   setShowAddTodoModal(true);
                 }}
-                className="bg-white rounded-lg p-[clamp(1rem,2vw,3rem)] flex items-center justify-center hover:bg-gray-50 transition-colors"
+                className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#222222]/8 text-[#222222] transition-all hover:bg-[#222222]/14 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#222222]/30"
+                aria-label="Neues To-Do mit Details"
               >
-                <span id="plus-icon" className="text-[clamp(1.875rem,5vw,6rem)] font-light text-[#222222]">+</span>
+                <span id="plus-icon" className="text-[1.75rem] font-light leading-none">+</span>
               </button>
             </div>
-
-            {/* Filter Capsule */}
-            {selectedFolderFilters.length > 0 && (
-              <div id="filter-capsule" className="flex flex-wrap items-center gap-2">
-                {selectedFolderFilters.map(fid => (
-                  <div
-                    key={fid}
-                    id={`filter-capsule-${fid}`}
-                    className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white"
-                    style={{ backgroundColor: getFolderColor(fid) + '20' }}
-                  >
-                    <div
-                      className="w-3 h-3 rounded-full"
-                      style={{ backgroundColor: getFolderColor(fid) }}
-                    />
-                    <span className="text-sm text-[#222222]">{getFolderName(fid)}</span>
-                    <button
-                      onClick={() => setSelectedFolderFilters(prev => prev.filter(id => id !== fid))}
-                      className="text-[#222222] hover:text-red-500"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-                <button
-                  id="filter-capsule-close-all"
-                  onClick={() => setSelectedFolderFilters([])}
-                  className="text-sm text-[#7D7D7D] hover:text-[#222222]"
-                >
-                  Alle entfernen
-                </button>
-              </div>
-            )}
-
-            {/* Filter Modal (checkboxes + Filter anwenden) */}
-            {showFilterModal && (
-              <div id="filter-modal-overlay" className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setShowFilterModal(false)}>
-                <div id="filter-modal" className="bg-white rounded-lg p-6 max-w-sm w-full mx-4" onClick={(e) => e.stopPropagation()}>
-                  <h2 id="filter-modal-title" className="text-xl font-bold text-[#222222] mb-4">Filter</h2>
-                  <div id="filter-modal-list" className="space-y-2 mb-4 max-h-60 overflow-y-auto">
-                    {folders.map(folder => (
-                      <div
-                        key={folder.id}
-                        id={`filter-row-${folder.id}`}
-                        className="flex items-center gap-3 w-full px-3 py-2 rounded hover:bg-gray-50"
-                      >
-                        <label className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={filterModalCheckedIds.has(folder.id)}
-                            onChange={() => {
-                              setFilterModalCheckedIds(prev => {
-                                const next = new Set(prev);
-                                if (next.has(folder.id)) next.delete(folder.id);
-                                else next.add(folder.id);
-                                return next;
-                              });
-                            }}
-                            className="w-4 h-4 rounded border-gray-300"
-                          />
-                          <div
-                            className="w-4 h-4 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: folder.color }}
-                          />
-                          <span className="text-[#222222] truncate">{folder.name}</span>
-                        </label>
-                        <button
-                          type="button"
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); deleteFolder(folder.id); }}
-                          className="p-1.5 rounded text-[#7D7D7D] hover:text-red-500 hover:bg-red-50 flex-shrink-0"
-                          title="Ordner löschen"
-                          aria-label="Ordner löschen"
-                        >
-                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                            <line x1="10" y1="11" x2="10" y2="17" />
-                            <line x1="14" y1="11" x2="14" y2="17" />
-                          </svg>
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                  <button
-                    id="filter-apply-btn"
-                    onClick={() => {
-                      setSelectedFolderFilters(Array.from(filterModalCheckedIds));
-                      setShowFilterModal(false);
-                    }}
-                    className="w-full px-4 py-3 bg-[#222222] text-white rounded-lg hover:bg-[#333333] transition-colors font-medium"
-                  >
-                    Filter anwenden
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowFolderModal(true)}
-                    className="w-full mt-3 px-4 py-2 border-2 border-gray-200 rounded-lg text-[#222222] hover:bg-gray-50 transition-colors font-medium flex items-center justify-center gap-2"
-                  >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                    </svg>
-                    Ordner hinzufügen
-                  </button>
-                </div>
-              </div>
-            )}
 
             {/* Folder Modal (add/manage folders + delete) */}
             {showFolderModal && (
@@ -1706,13 +1454,41 @@ export default function Home() {
               </div>
             )}
 
-            {/* Notes List */}
-            <div 
-              id="notes-list-container" 
-              className="overflow-hidden relative"
+            {/* Notepad — Apple Reminders Style */}
+            <div
+              id="notes-list-container"
+              className="notepad-paper overflow-hidden relative cursor-text"
+              onClick={(e) => {
+                if ((e.target as HTMLElement).closest('[data-todo-row]')) return;
+                notepadInputRef.current?.focus();
+              }}
             >
-              <div id="notes-list-inner" key={displayDayKey} className="day-view-content space-y-2">
+              <div id="notes-list-inner" key={displayDayKey} className="day-view-content px-4 pt-12 pb-6">
                 {todoListNodes}
+
+                <div className="flex items-start gap-3 px-1 py-1.5 min-h-[32px]">
+                  <div className="mt-0.5 w-[22px] h-[22px] rounded-full border-[1.5px] border-[#C8C8C8] flex-shrink-0" aria-hidden />
+                  <textarea
+                    ref={notepadInputRef}
+                    id="inline-todo-input"
+                    value={inlineNewTodoText}
+                    onChange={(e) => {
+                      setInlineNewTodoText(e.target.value);
+                      const ta = e.target;
+                      ta.style.height = 'auto';
+                      ta.style.height = `${ta.scrollHeight}px`;
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        addInlineTodo();
+                      }
+                    }}
+                    placeholder="Tippe hier…"
+                    rows={1}
+                    className="flex-1 bg-transparent text-[#222222] text-[17px] leading-[1.45] placeholder:text-[#B0B0B0] resize-none overflow-hidden outline-none border-none p-0 pt-0.5 min-h-[24px]"
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -1918,16 +1694,10 @@ export default function Home() {
         
         #notes-list-container {
           position: relative;
-          overflow: hidden;
-          min-height: 50px;
         }
         
         #notes-list-inner {
           position: relative;
-        }
-        
-        #notes-list-inner > div {
-          will-change: transform, opacity;
         }
         
         #dashboard-view, #monthly-view {

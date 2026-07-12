@@ -17,7 +17,8 @@ body {
   box-sizing: border-box;
 }
 
-.liquid-glass-nav {
+.liquid-glass-nav,
+.liquid-glass-top-bar {
   background: rgba(255, 255, 255, 0.62);
   backdrop-filter: blur(22px) saturate(180%);
   -webkit-backdrop-filter: blur(22px) saturate(180%);
@@ -25,6 +26,29 @@ body {
   box-shadow:
     0 8px 32px rgba(0, 0, 0, 0.08),
     inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.notepad-paper {
+  background: linear-gradient(180deg, #fffef8 0%, #fff9e8 100%);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 16px;
+  box-shadow:
+    0 2px 12px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  background-image: repeating-linear-gradient(
+    transparent,
+    transparent 31px,
+    rgba(0, 0, 0, 0.04) 31px,
+    rgba(0, 0, 0, 0.04) 32px
+  );
+  background-position: 0 48px;
+  min-height: clamp(280px, 50vh, 520px);
+}
+
+.notepad-paper:focus-within {
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
 .day-view-content {
