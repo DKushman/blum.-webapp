@@ -11,6 +11,8 @@ type Category = { id: string; name: string; color: string };
 
 type TodoDetailSheetProps = {
   isOpen: boolean;
+  /** true = neue Aufgabe anlegen (statt bestehende bearbeiten) */
+  isNew?: boolean;
   text: string;
   completed: boolean;
   reminderEnabled: boolean;
@@ -33,6 +35,7 @@ const DISMISS_THRESHOLD = 100;
 
 export function TodoDetailSheet({
   isOpen,
+  isNew = false,
   text,
   completed,
   reminderEnabled,
@@ -145,7 +148,6 @@ export function TodoDetailSheet({
           placeholder="Was möchtest du erledigen?"
           rows={2}
           className="w-full resize-none overflow-hidden bg-transparent text-[15px] leading-relaxed text-[#222222] outline-none placeholder:text-[#A8A8A8]"
-          autoFocus
         />
 
         <div className="mt-4 space-y-3 border-t border-[#222222]/8 pt-4">
@@ -258,9 +260,11 @@ export function TodoDetailSheet({
           <button
             type="button"
             onClick={onDelete}
-            className="flex-1 rounded-xl border border-[#222222]/10 py-3 text-[13px] font-medium text-red-500 transition-colors hover:bg-red-50"
+            className={`flex-1 rounded-xl border border-[#222222]/10 py-3 text-[13px] font-medium transition-colors ${
+              isNew ? 'text-[#7D7D7D] hover:bg-[#222222]/5' : 'text-red-500 hover:bg-red-50'
+            }`}
           >
-            Löschen
+            {isNew ? 'Abbrechen' : 'Löschen'}
           </button>
           <button
             type="button"
@@ -268,7 +272,7 @@ export function TodoDetailSheet({
             disabled={!text.trim() || (reminderEnabled && !reminderTime)}
             className="flex-[2] rounded-xl bg-[#222222] py-3 text-[13px] font-medium text-white transition-colors hover:bg-[#333333] disabled:opacity-40"
           >
-            Speichern
+            {isNew ? 'Hinzufügen' : 'Speichern'}
           </button>
         </div>
       </div>

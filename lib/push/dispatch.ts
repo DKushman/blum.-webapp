@@ -13,21 +13,42 @@ export async function dispatchReminder(
   const redis = getRedis();
   if (!redis) return false;
 
+  // Prüfen, ob diese Erinnerung noch aktuell ist. QStash kann für dieselbe
+  // Aufgabe mehrere (auch veraltete) Jobs eingeplant haben — nur die, die noch
+  // in der aktuellen Liste steht, darf feuern.
+  const reminders = await redis.get<ReminderPayload[]>(
+    REDIS_KEYS.reminders(deviceId)
+  );
+  const stillValid = reminders?.some(
+    (r) => r.todoId === reminder.todoId && r.remindAt === reminder.remindAt
+  );
+  if (!stillValid) return false;
+
+  // Atomar reservieren: nur der erste gleichzeitige Zusteller gewinnt und sendet.
+  // Verhindert die 20 Doppel-Benachrichtigungen durch parallele QStash-/Poll-Zustellungen.
   const sentKey = REDIS_KEYS.sent(deviceId, reminder.todoId, reminder.remindAt);
-  const alreadySent = await redis.get(sentKey);
-  if (alreadySent) return false;
+  const reserved = await redis.set(sentKey, "1", { nx: true, ex: 60 * 60 * 25 });
+  if (reserved !== "OK") return false;
 
   const subscription = await redis.get<PushSubscriptionPayload>(
     REDIS_KEYS.subscription(deviceId)
   );
-  if (!subscription) return false;
+  if (!subscription) {
+    // Reservierung freigeben, damit ein späterer Versuch mit gültiger Subscription senden kann.
+    await redis.del(sentKey);
+    return false;
+  }
 
-  await sendPushNotification(subscription, {
-    title: "David von Blume",
-    body: reminder.text,
-    url: "/",
-  });
-  await redis.set(sentKey, "1", { ex: 60 * 60 * 25 });
+  try {
+    await sendPushNotification(subscription, {
+      title: "David von Blume",
+      body: reminder.text,
+      url: "/",
+    });
+  } catch (error) {
+    await redis.del(sentKey);
+    throw error;
+  }
   return true;
 }
 

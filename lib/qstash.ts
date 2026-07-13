@@ -43,6 +43,10 @@ export async function scheduleReminders(
         url: dispatchUrl,
         body: { deviceId, reminder },
         notBefore: Math.floor(remindAtMs / 1000),
+        // Verhindert doppelte Einplanungen: Jeder erneute Sync für dieselbe
+        // Aufgabe+Uhrzeit erzeugt keinen neuen Job, sondern greift auf den
+        // bestehenden zu. So kommt pro Erinnerung nur eine Benachrichtigung.
+        deduplicationId: `${deviceId}:${reminder.todoId}:${reminder.remindAt}`,
       });
       scheduled += 1;
     } catch (error) {

@@ -130,7 +130,7 @@ export function SwipeableTodoRow({
       </span>
 
       <div
-        className={`swipe-row-content flex items-center gap-2.5 ${snapping ? 'snapping' : ''}`}
+        className={`swipe-row-content flex items-start gap-2.5 ${snapping ? 'snapping' : ''}`}
         style={{ transform: `translateX(${dragX}px)` }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
@@ -145,7 +145,7 @@ export function SwipeableTodoRow({
           }}
           onPointerDown={(e) => e.stopPropagation()}
           style={circleStyle}
-          className={`h-[14px] w-[14px] shrink-0 rounded-full border-[1.5px] transition-all duration-200 ${
+          className={`mt-[9px] h-[14px] w-[14px] shrink-0 rounded-full border-[1.5px] transition-all duration-200 ${
             completed
               ? 'border-[#222222] bg-[#222222]'
               : 'border-[#222222]/35 bg-transparent'
@@ -153,7 +153,7 @@ export function SwipeableTodoRow({
           aria-label={completed ? 'Als offen markieren' : 'Als erledigt markieren'}
         />
         <span
-          className={`min-w-0 flex-1 text-left text-[15px] text-[#222222] transition-all duration-200 ${
+          className={`min-w-0 flex-1 py-[6px] text-left text-[15px] leading-[21px] text-[#222222] transition-all duration-200 ${
             completed ? 'line-through opacity-40' : ''
           }`}
         >

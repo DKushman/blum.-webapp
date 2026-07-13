@@ -73,6 +73,7 @@ export default function Home() {
   const [inlineCategoryId, setInlineCategoryId] = useState<string | undefined>(undefined);
   const [showInlineCategoryPicker, setShowInlineCategoryPicker] = useState(false);
   const [sheetTodo, setSheetTodo] = useState<Todo | null>(null);
+  const [sheetIsNew, setSheetIsNew] = useState(false);
   const [sheetText, setSheetText] = useState('');
   const [sheetCompleted, setSheetCompleted] = useState(false);
   const [sheetReminderEnabled, setSheetReminderEnabled] = useState(false);
@@ -247,6 +248,14 @@ export default function Home() {
     return foldersById.get(folderId)?.name ?? '—';
   };
 
+  const getCategoryName = (folderId?: string): string | undefined => {
+    if (!folderId) return undefined;
+    return (
+      foldersById.get(folderId)?.name ??
+      CATEGORY_PRESETS.find((c) => c.id === folderId)?.name
+    );
+  };
+
   const isOverdue = (todo: Todo) => {
     if (todo.completed) return false;
     const todoDate = new Date(todo.date);
@@ -335,6 +344,7 @@ export default function Home() {
   };
 
   const openTodoSheet = (todo: Todo) => {
+    setSheetIsNew(false);
     setSheetTodo(todo);
     setSheetText(todo.text);
     setSheetCompleted(todo.completed);
@@ -344,8 +354,27 @@ export default function Home() {
     setSheetCategoryId(todo.folderId);
   };
 
+  const openNewTodoSheet = (prefillText = '', prefillCategory?: string) => {
+    const dateToUse = currentView === 'chosen-day' ? chosenDayFromCalendar : selectedDay;
+    setSheetIsNew(true);
+    setSheetTodo({
+      id: Date.now().toString(),
+      text: prefillText,
+      date: formatDateString(dateToUse),
+      completed: false,
+      folderId: prefillCategory,
+    });
+    setSheetText(prefillText);
+    setSheetCompleted(false);
+    setSheetReminderEnabled(false);
+    setSheetReminderTime('');
+    setSheetReminderOffset('30m');
+    setSheetCategoryId(prefillCategory);
+  };
+
   const closeTodoSheet = () => {
     setSheetTodo(null);
+    setSheetIsNew(false);
     setSheetText('');
     setSheetCompleted(false);
     setSheetReminderEnabled(false);
@@ -375,12 +404,21 @@ export default function Home() {
       reminderOffset: reminderEnabled ? sheetReminderOffset : undefined,
     };
 
-    setTodos(todos.map((todo) => (todo.id === sheetTodo.id ? updatedTodo : todo)));
+    if (sheetIsNew) {
+      setTodos([...todos, updatedTodo]);
+    } else {
+      setTodos(todos.map((todo) => (todo.id === sheetTodo.id ? updatedTodo : todo)));
+    }
     closeTodoSheet();
   };
 
   const deleteFromSheet = () => {
     if (!sheetTodo) return;
+    // Im Neu-Modus ist „Abbrechen“ = einfach schließen (nichts wurde angelegt).
+    if (sheetIsNew) {
+      closeTodoSheet();
+      return;
+    }
     requestDeleteTodo(sheetTodo);
     closeTodoSheet();
   };
@@ -545,7 +583,42 @@ export default function Home() {
     />
   );
 
-  const todoListNodes = currentTodos.map((todo) => renderTodoRow(todo));
+  // Nach Kategorie gruppieren: gleiche Kategorie steht untereinander.
+  // Reihenfolge: erst ohne Kategorie, dann in Preset-Reihenfolge.
+  const groupedTodos = useMemo(() => {
+    const groups = new Map<string, Todo[]>();
+    for (const todo of currentTodos) {
+      const key = todo.folderId ?? '';
+      const bucket = groups.get(key);
+      if (bucket) bucket.push(todo);
+      else groups.set(key, [todo]);
+    }
+    const order: string[] = [];
+    if (groups.has('')) order.push('');
+    for (const cat of CATEGORY_PRESETS) if (groups.has(cat.id)) order.push(cat.id);
+    for (const key of groups.keys()) if (!order.includes(key)) order.push(key);
+    return order.map((key) => ({ key, todos: groups.get(key)! }));
+  }, [currentTodos]);
+
+  const todoGroupNodes = groupedTodos.map((group) => {
+    const name = getCategoryName(group.key || undefined);
+    const color = getCategoryColor(group.key || undefined);
+    return (
+      <div key={group.key || 'ungrouped'} className="mb-1">
+        {name && (
+          <div className="notepad-line-item flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-[#222222]/45">
+            <span
+              className="h-2 w-2 rounded-full"
+              style={{ backgroundColor: color }}
+              aria-hidden
+            />
+            {name}
+          </div>
+        )}
+        {group.todos.map((todo) => renderTodoRow(todo))}
+      </div>
+    );
+  });
 
   if (entryArea === 'hydrating') {
     return (
@@ -635,10 +708,11 @@ export default function Home() {
                 Blumè
               </button>
 
+              {/* Datum mittig im Bildschirm */}
               <div
                 id="date-display"
                 key={displayDayKey}
-                className="liquid-glass-pill day-view-content px-4 py-1.5 text-[12px] font-medium text-[#222222]"
+                className="liquid-glass-pill day-view-content pointer-events-none absolute left-1/2 -translate-x-1/2 px-4 py-1.5 text-[12px] font-medium text-[#222222]"
               >
                 {formatDatePill(displayDay)}
               </div>
@@ -646,7 +720,7 @@ export default function Home() {
               <button
                 id="quick-add-btn"
                 type="button"
-                onClick={() => notepadInputRef.current?.focus()}
+                onClick={() => openNewTodoSheet()}
                 className="liquid-glass-pill flex h-8 w-8 shrink-0 items-center justify-center text-[#222222] transition-transform active:scale-95"
                 aria-label="Neues To-Do"
               >
@@ -656,7 +730,7 @@ export default function Home() {
 
             <div
               id="dashboard-view"
-              className="notepad-surface touch-pan-y px-5"
+              className="notepad-surface touch-pan-y pl-9 pr-4"
               onPointerDown={handleDaySwipePointerDown}
               onPointerUp={handleDaySwipePointerUp}
               onPointerCancel={handleDaySwipePointerCancel}
@@ -669,7 +743,7 @@ export default function Home() {
                 {currentTodos.length === 0 && !inlineNewTodoText && (
                   <p className="notepad-line-item text-[13px] text-[#B8B4A8]">Tippe, um zu schreiben…</p>
                 )}
-                {todoListNodes}
+                {todoGroupNodes}
                 <div
                   className="notepad-line-item relative flex items-center gap-2.5"
                   data-no-day-swipe
@@ -708,8 +782,24 @@ export default function Home() {
                     }}
                     placeholder=""
                     rows={1}
-                    className="min-w-0 flex-1 resize-none overflow-hidden bg-transparent text-[15px] leading-[34px] text-[#222222] outline-none placeholder:text-[#B8B4A8]"
+                    className="min-w-0 flex-1 resize-none overflow-hidden bg-transparent text-[15px] leading-[24px] text-[#222222] outline-none placeholder:text-[#B8B4A8]"
                   />
+
+                  {/* 3-Punkte → volles Overlay öffnen (mehr Optionen für diese Aufgabe) */}
+                  {inlineNewTodoText.trim() && (
+                    <button
+                      type="button"
+                      id="inline-more-btn"
+                      onClick={() => {
+                        openNewTodoSheet(inlineNewTodoText.trim(), inlineCategoryId);
+                        setInlineNewTodoText('');
+                      }}
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[#222222]/50 transition-colors hover:bg-[#222222]/8 active:scale-95"
+                      aria-label="Weitere Optionen"
+                    >
+                      <span className="text-[17px] leading-none tracking-tight">⋯</span>
+                    </button>
+                  )}
 
                   {showInlineCategoryPicker && (
                     <>
@@ -757,6 +847,7 @@ export default function Home() {
 
             <TodoDetailSheet
               isOpen={sheetTodo !== null}
+              isNew={sheetIsNew}
               text={sheetText}
               completed={sheetCompleted}
               reminderEnabled={sheetReminderEnabled}
