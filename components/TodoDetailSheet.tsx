@@ -7,6 +7,8 @@ import {
   type ReminderOffset,
 } from '@/lib/push/reminder-offset';
 
+type Category = { id: string; name: string; color: string };
+
 type TodoDetailSheetProps = {
   isOpen: boolean;
   text: string;
@@ -14,6 +16,9 @@ type TodoDetailSheetProps = {
   reminderEnabled: boolean;
   reminderTime: string;
   reminderOffset: ReminderOffset;
+  categoryId?: string;
+  categories: Category[];
+  onCategoryChange: (value: string | undefined) => void;
   onTextChange: (value: string) => void;
   onCompletedChange: (value: boolean) => void;
   onReminderEnabledChange: (value: boolean) => void;
@@ -33,6 +38,9 @@ export function TodoDetailSheet({
   reminderEnabled,
   reminderTime,
   reminderOffset,
+  categoryId,
+  categories,
+  onCategoryChange,
   onTextChange,
   onCompletedChange,
   onReminderEnabledChange,
@@ -158,6 +166,33 @@ export function TodoDetailSheet({
                 }`}
               />
             </button>
+          </div>
+
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-[13px] font-medium text-[#222222]">Kategorie</span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => onCategoryChange(undefined)}
+                className={`h-6 w-6 rounded-full border-[1.5px] border-dashed border-[#222222]/30 ${
+                  !categoryId ? 'ring-2 ring-[#222222]/25' : ''
+                }`}
+                aria-label="Keine Kategorie"
+              />
+              {categories.map((cat) => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => onCategoryChange(cat.id)}
+                  style={{ backgroundColor: cat.color }}
+                  className={`h-6 w-6 rounded-full transition-transform active:scale-90 ${
+                    categoryId === cat.id ? 'ring-2 ring-offset-1 ring-[#222222]/40' : ''
+                  }`}
+                  aria-label={cat.name}
+                  title={cat.name}
+                />
+              ))}
+            </div>
           </div>
 
           <div className="flex items-center justify-between">

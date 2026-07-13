@@ -9,6 +9,7 @@ import {
 } from '@/components/EntryModePicker';
 import { FitnessDashboard } from '@/components/FitnessDashboard';
 import { TodoDetailSheet } from '@/components/TodoDetailSheet';
+import { SwipeableTodoRow } from '@/components/SwipeableTodoRow';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
 import {
   REMINDER_OFFSET_OPTIONS,
@@ -48,6 +49,15 @@ type View = 'dashboard' | 'chosen-day' | 'monthly';
 
 type EntryRoute = 'hydrating' | 'picker' | BlumeEntryArea;
 
+/** Feste Kategorie-Presets (werden bei Bedarf als Folder angelegt) */
+const CATEGORY_PRESETS: Folder[] = [
+  { id: 'cat-blue', name: 'Persönlich', color: '#3B82F6' },
+  { id: 'cat-orange', name: 'Arbeit', color: '#FF9F0A' },
+  { id: 'cat-green', name: 'Einkauf', color: '#34C759' },
+  { id: 'cat-red', name: 'Wichtig', color: '#FF3B30' },
+  { id: 'cat-purple', name: 'Privat', color: '#AF52DE' },
+];
+
 const weekdays = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
 const months = [
   'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
@@ -60,12 +70,15 @@ export default function Home() {
   const [chosenDayFromCalendar, setChosenDayFromCalendar] = useState<Date>(new Date()); // Last day chosen from monthly overview
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
   const [inlineNewTodoText, setInlineNewTodoText] = useState('');
+  const [inlineCategoryId, setInlineCategoryId] = useState<string | undefined>(undefined);
+  const [showInlineCategoryPicker, setShowInlineCategoryPicker] = useState(false);
   const [sheetTodo, setSheetTodo] = useState<Todo | null>(null);
   const [sheetText, setSheetText] = useState('');
   const [sheetCompleted, setSheetCompleted] = useState(false);
   const [sheetReminderEnabled, setSheetReminderEnabled] = useState(false);
   const [sheetReminderTime, setSheetReminderTime] = useState('');
   const [sheetReminderOffset, setSheetReminderOffset] = useState<ReminderOffset>('30m');
+  const [sheetCategoryId, setSheetCategoryId] = useState<string | undefined>(undefined);
   const [showMonthPicker, setShowMonthPicker] = useState(false);
   const [showDeleteTodoModal, setShowDeleteTodoModal] = useState(false);
   const [todoToDelete, setTodoToDelete] = useState<Todo | null>(null);
@@ -80,10 +93,6 @@ export default function Home() {
   }>({ pointerId: null, startX: 0, startY: 0, tracking: false });
   const notepadInputRef = useRef<HTMLTextAreaElement>(null);
   const notepadScrollRef = useRef<HTMLDivElement>(null);
-  const longPressRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; triggered: boolean }>({
-    timer: null,
-    triggered: false,
-  });
 
   const [entryArea, setEntryArea] = useState<EntryRoute>('hydrating');
 
@@ -197,17 +206,9 @@ export default function Home() {
       return todo.date === dateStr;
     });
 
-    // Sort: incomplete first (grouped by folder), then completed at bottom (also grouped by folder)
-    return [...filtered].sort((a, b) => {
-      // First sort by completed status (incomplete first)
-      const completedDiff = (a.completed ? 1 : 0) - (b.completed ? 1 : 0);
-      if (completedDiff !== 0) return completedDiff;
-      
-      // Within same completion status, group by folderId
-      const folderA = a.folderId || '';
-      const folderB = b.folderId || '';
-      return folderA.localeCompare(folderB);
-    });
+    // Nur Erledigte nach unten schieben — sonst Reihenfolge beibehalten
+    // (neue To-Dos bleiben dort, wo sie geschrieben wurden, statt nach oben zu springen).
+    return [...filtered].sort((a, b) => (a.completed ? 1 : 0) - (b.completed ? 1 : 0));
   };
 
   const getTodosForMonth = (date: Date) => {
@@ -226,9 +227,19 @@ export default function Home() {
     return `${date.getDate()}.`;
   };
 
-  const getFolderColor = (folderId?: string) => {
-    if (!folderId) return '#D3D3D3';
-    return foldersById.get(folderId)?.color ?? '#D3D3D3';
+  const getCategoryColor = (folderId?: string): string | undefined => {
+    if (!folderId) return undefined;
+    const fromFolders = foldersById.get(folderId)?.color;
+    if (fromFolders) return fromFolders;
+    return CATEGORY_PRESETS.find((c) => c.id === folderId)?.color;
+  };
+
+  /** Sorgt dafür, dass ein Preset-Ordner in `folders` existiert (für Farbe/Name). */
+  const ensureCategoryFolder = (folderId?: string) => {
+    if (!folderId) return;
+    if (foldersById.has(folderId)) return;
+    const preset = CATEGORY_PRESETS.find((c) => c.id === folderId);
+    if (preset) setFolders((prev) => [...prev, preset]);
   };
 
   const getFolderName = (folderId?: string) => {
@@ -330,6 +341,7 @@ export default function Home() {
     setSheetReminderEnabled(todo.reminderEnabled ?? false);
     setSheetReminderTime(parseHhMmFromTodo(todo));
     setSheetReminderOffset(normalizeReminderOffset(todo.reminderOffset));
+    setSheetCategoryId(todo.folderId);
   };
 
   const closeTodoSheet = () => {
@@ -339,6 +351,7 @@ export default function Home() {
     setSheetReminderEnabled(false);
     setSheetReminderTime('');
     setSheetReminderOffset('30m');
+    setSheetCategoryId(undefined);
   };
 
   const saveTodoSheet = () => {
@@ -347,9 +360,11 @@ export default function Home() {
     const timeDisplay = sheetReminderTime ? formatTodoTimeDisplay(sheetReminderTime) : undefined;
     const reminderEnabled = sheetReminderEnabled && Boolean(sheetReminderTime);
 
+    ensureCategoryFolder(sheetCategoryId);
     const updatedTodo: Todo = {
       ...sheetTodo,
       text: sheetText.trim(),
+      folderId: sheetCategoryId,
       completed: sheetCompleted,
       completedOn: sheetCompleted
         ? (sheetTodo.completedOn ?? formatDateString(currentView === 'chosen-day' ? chosenDayFromCalendar : selectedDay))
@@ -394,11 +409,13 @@ export default function Home() {
 
     const scrollTop = notepadScrollRef.current?.scrollTop ?? 0;
     const dateToUse = currentView === 'chosen-day' ? chosenDayFromCalendar : selectedDay;
+    ensureCategoryFolder(inlineCategoryId);
     const newTodo: Todo = {
       id: Date.now().toString(),
       text: inlineNewTodoText.trim(),
       date: formatDateString(dateToUse),
       completed: false,
+      folderId: inlineCategoryId,
     };
     setTodos([...todos, newTodo]);
     setInlineNewTodoText('');
@@ -407,34 +424,6 @@ export default function Home() {
         notepadScrollRef.current.scrollTop = scrollTop;
       }
     });
-  };
-
-  const clearLongPress = () => {
-    if (longPressRef.current.timer) {
-      clearTimeout(longPressRef.current.timer);
-      longPressRef.current.timer = null;
-    }
-  };
-
-  const handleTodoPointerDown = (todo: Todo) => {
-    longPressRef.current.triggered = false;
-    clearLongPress();
-    longPressRef.current.timer = setTimeout(() => {
-      longPressRef.current.triggered = true;
-      openTodoSheet(todo);
-    }, 480);
-  };
-
-  const handleTodoPointerUp = (todo: Todo) => {
-    const wasLongPress = longPressRef.current.triggered;
-    clearLongPress();
-    if (!wasLongPress) {
-      toggleTodoComplete(todo.id);
-    }
-  };
-
-  const focusNotepadInput = () => {
-    notepadInputRef.current?.focus({ preventScroll: true });
   };
 
   const getWeekdayName = (date: Date) => {
@@ -544,41 +533,16 @@ export default function Home() {
   );
 
   const renderTodoRow = (todo: Todo) => (
-    <div
+    <SwipeableTodoRow
       key={`${formatDateString(displayDay)}-${todo.id}`}
-      id={`todo-item-${todo.id}`}
-      data-todo-row
-      className="notepad-line-item flex items-center gap-2.5"
-    >
-      <button
-        type="button"
-        id={`todo-circle-${todo.id}`}
-        onClick={() => toggleTodoComplete(todo.id)}
-        className={`mt-[5px] h-[13px] w-[13px] shrink-0 rounded-full border transition-all duration-200 ${
-          todo.completed
-            ? 'border-[#222222] bg-[#222222]'
-            : 'border-[#222222]/35 bg-transparent hover:border-[#222222]/55'
-        }`}
-        aria-label={todo.completed ? 'Als offen markieren' : 'Als erledigt markieren'}
-      />
-      <button
-        type="button"
-        onPointerDown={() => handleTodoPointerDown(todo)}
-        onPointerUp={() => handleTodoPointerUp(todo)}
-        onPointerCancel={clearLongPress}
-        onPointerLeave={clearLongPress}
-        className={`min-w-0 flex-1 text-left text-[14px] text-[#222222] bg-transparent transition-all duration-200 ${
-          todo.completed ? 'line-through opacity-40' : ''
-        }`}
-      >
-        {todo.text}
-        {(todo.reminderEnabled || todo.time) && (
-          <span className="ml-1.5 text-[11px] text-[#9A9A9A] no-underline">
-            {todo.time ?? ''}
-          </span>
-        )}
-      </button>
-    </div>
+      text={todo.text}
+      completed={todo.completed}
+      categoryColor={getCategoryColor(todo.folderId)}
+      meta={todo.reminderEnabled || todo.time ? (todo.time ?? '') : undefined}
+      onToggle={() => toggleTodoComplete(todo.id)}
+      onEdit={() => openTodoSheet(todo)}
+      onDelete={() => requestDeleteTodo(todo)}
+    />
   );
 
   const todoListNodes = currentTodos.map((todo) => renderTodoRow(todo));
@@ -656,40 +620,38 @@ export default function Home() {
           <>
             <header
               id="top-glass-header"
-              className="sticky top-0 z-40 px-4 pb-2 pt-[max(0.6rem,env(safe-area-inset-top,0px))]"
+              className="sticky top-0 z-40 flex items-center justify-between gap-2 px-4 pb-2 pt-[max(0.6rem,env(safe-area-inset-top,0px))]"
             >
-              <div className="liquid-glass-header flex items-center justify-between gap-2 px-3.5 py-2">
-                <button
-                  type="button"
-                  id="entry-area-switch-btn"
-                  onClick={() => {
-                    if (typeof window !== 'undefined') localStorage.removeItem(BLUME_ENTRY_AREA_KEY);
-                    setEntryArea('picker');
-                  }}
-                  className="shrink-0 text-[11px] font-semibold tracking-tight text-[#222222]/70 transition-opacity hover:opacity-100"
-                  aria-label="Zur Bereichsauswahl"
-                >
-                  Blumè
-                </button>
+              <button
+                type="button"
+                id="entry-area-switch-btn"
+                onClick={() => {
+                  if (typeof window !== 'undefined') localStorage.removeItem(BLUME_ENTRY_AREA_KEY);
+                  setEntryArea('picker');
+                }}
+                className="liquid-glass-pill shrink-0 px-3 py-1.5 text-[11px] font-semibold tracking-tight text-[#222222]/70 transition-opacity hover:opacity-100"
+                aria-label="Zur Bereichsauswahl"
+              >
+                Blumè
+              </button>
 
-                <div
-                  id="date-display"
-                  key={displayDayKey}
-                  className="day-view-content rounded-full bg-[#222222]/6 px-3.5 py-1 text-[12px] font-medium text-[#222222]"
-                >
-                  {formatDatePill(displayDay)}
-                </div>
-
-                <button
-                  id="quick-add-btn"
-                  type="button"
-                  onClick={() => notepadInputRef.current?.focus()}
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#222222]/8 text-[#222222] transition-all hover:bg-[#222222]/14 active:scale-95"
-                  aria-label="Neues To-Do"
-                >
-                  <span id="plus-icon" className="text-[18px] font-light leading-none">+</span>
-                </button>
+              <div
+                id="date-display"
+                key={displayDayKey}
+                className="liquid-glass-pill day-view-content px-4 py-1.5 text-[12px] font-medium text-[#222222]"
+              >
+                {formatDatePill(displayDay)}
               </div>
+
+              <button
+                id="quick-add-btn"
+                type="button"
+                onClick={() => notepadInputRef.current?.focus()}
+                className="liquid-glass-pill flex h-8 w-8 shrink-0 items-center justify-center text-[#222222] transition-transform active:scale-95"
+                aria-label="Neues To-Do"
+              >
+                <span id="plus-icon" className="text-[19px] font-light leading-none">+</span>
+              </button>
             </header>
 
             <div
@@ -708,27 +670,88 @@ export default function Home() {
                   <p className="notepad-line-item text-[13px] text-[#B8B4A8]">Tippe, um zu schreiben…</p>
                 )}
                 {todoListNodes}
-                <textarea
-                  ref={notepadInputRef}
-                  id="inline-todo-input"
-                  value={inlineNewTodoText}
-                  onChange={(e) => {
-                    setInlineNewTodoText(e.target.value);
-                    const ta = e.target;
-                    ta.style.height = 'auto';
-                    ta.style.height = `${ta.scrollHeight}px`;
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      addInlineTodo();
-                    }
-                  }}
-                  placeholder=""
-                  rows={1}
+                <div
+                  className="notepad-line-item relative flex items-center gap-2.5"
                   data-no-day-swipe
-                  className="notepad-line-item w-full resize-none overflow-hidden bg-transparent text-[14px] leading-[28px] text-[#222222] outline-none placeholder:text-[#B8B4A8]"
-                />
+                  data-todo-row
+                >
+                  {/* Kategorie-Auswahl auf derselben Zeile */}
+                  <button
+                    type="button"
+                    id="inline-category-btn"
+                    onClick={() => setShowInlineCategoryPicker((v) => !v)}
+                    style={
+                      getCategoryColor(inlineCategoryId)
+                        ? { borderColor: getCategoryColor(inlineCategoryId), backgroundColor: 'transparent' }
+                        : undefined
+                    }
+                    className={`h-[14px] w-[14px] shrink-0 rounded-full border-[1.5px] border-dashed transition-all ${
+                      inlineCategoryId ? 'border-solid' : 'border-[#222222]/25'
+                    }`}
+                    aria-label="Kategorie wählen"
+                  />
+                  <textarea
+                    ref={notepadInputRef}
+                    id="inline-todo-input"
+                    value={inlineNewTodoText}
+                    onChange={(e) => {
+                      setInlineNewTodoText(e.target.value);
+                      const ta = e.target;
+                      ta.style.height = 'auto';
+                      ta.style.height = `${ta.scrollHeight}px`;
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        addInlineTodo();
+                      }
+                    }}
+                    placeholder=""
+                    rows={1}
+                    className="min-w-0 flex-1 resize-none overflow-hidden bg-transparent text-[15px] leading-[34px] text-[#222222] outline-none placeholder:text-[#B8B4A8]"
+                  />
+
+                  {showInlineCategoryPicker && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-40"
+                        onClick={() => setShowInlineCategoryPicker(false)}
+                        aria-hidden
+                      />
+                      <div className="absolute left-0 top-8 z-50 flex items-center gap-2.5 rounded-full liquid-glass-pill px-3 py-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setInlineCategoryId(undefined);
+                            setShowInlineCategoryPicker(false);
+                            notepadInputRef.current?.focus();
+                          }}
+                          className={`h-5 w-5 rounded-full border-[1.5px] border-dashed border-[#222222]/30 ${
+                            !inlineCategoryId ? 'ring-2 ring-[#222222]/25' : ''
+                          }`}
+                          aria-label="Keine Kategorie"
+                        />
+                        {CATEGORY_PRESETS.map((cat) => (
+                          <button
+                            key={cat.id}
+                            type="button"
+                            onClick={() => {
+                              setInlineCategoryId(cat.id);
+                              setShowInlineCategoryPicker(false);
+                              notepadInputRef.current?.focus();
+                            }}
+                            style={{ backgroundColor: cat.color }}
+                            className={`h-5 w-5 rounded-full transition-transform active:scale-90 ${
+                              inlineCategoryId === cat.id ? 'ring-2 ring-offset-1 ring-[#222222]/40' : ''
+                            }`}
+                            aria-label={cat.name}
+                            title={cat.name}
+                          />
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -739,6 +762,9 @@ export default function Home() {
               reminderEnabled={sheetReminderEnabled}
               reminderTime={sheetReminderTime}
               reminderOffset={sheetReminderOffset}
+              categoryId={sheetCategoryId}
+              categories={CATEGORY_PRESETS}
+              onCategoryChange={setSheetCategoryId}
               onTextChange={setSheetText}
               onCompletedChange={setSheetCompleted}
               onReminderEnabledChange={setSheetReminderEnabled}
