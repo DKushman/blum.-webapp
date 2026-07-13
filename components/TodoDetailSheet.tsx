@@ -21,6 +21,8 @@ type TodoDetailSheetProps = {
   categoryId?: string;
   categories: Category[];
   onCategoryChange: (value: string | undefined) => void;
+  /** Legt einen neuen Ordner an und gibt dessen id zurück */
+  onCreateCategory: (name: string, color: string) => string;
   onTextChange: (value: string) => void;
   onCompletedChange: (value: boolean) => void;
   onReminderEnabledChange: (value: boolean) => void;
@@ -33,6 +35,12 @@ type TodoDetailSheetProps = {
 
 const DISMISS_THRESHOLD = 100;
 
+/** Farbauswahl für neu angelegte Ordner */
+const NEW_FOLDER_COLORS = [
+  '#3B82F6', '#FF9F0A', '#34C759', '#FF3B30', '#AF52DE',
+  '#5AC8FA', '#FFCC00', '#FF2D55', '#8E8E93', '#30B0C7',
+];
+
 export function TodoDetailSheet({
   isOpen,
   isNew = false,
@@ -44,6 +52,7 @@ export function TodoDetailSheet({
   categoryId,
   categories,
   onCategoryChange,
+  onCreateCategory,
   onTextChange,
   onCompletedChange,
   onReminderEnabledChange,
@@ -63,6 +72,9 @@ export function TodoDetailSheet({
   const [dragging, setDragging] = useState(false);
   const [render, setRender] = useState(false);
   const [shown, setShown] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newColor, setNewColor] = useState(NEW_FOLDER_COLORS[0]);
 
   // Ein-/Ausblenden getrennt vom Mount steuern, damit auch das Schließen
   // (Weg-Tippen) sauber nach unten animiert, bevor das Sheet entfernt wird.
@@ -70,6 +82,8 @@ export function TodoDetailSheet({
     if (isOpen) {
       setRender(true);
       setDragOffset(0);
+      setCreating(false);
+      setNewName('');
       document.body.style.overflow = 'hidden';
       // Zwei Frames warten, damit die Startposition (100%) sicher gerendert ist,
       // bevor nach oben animiert wird.
@@ -122,14 +136,16 @@ export function TodoDetailSheet({
 
   return (
     <div
-      className={`fixed inset-0 z-[70] transition-opacity duration-[460ms] ease-[cubic-bezier(0.32,0.72,0,1)] ${
-        shown ? 'opacity-100' : 'opacity-0 pointer-events-none'
-      }`}
+      className={`fixed inset-0 z-[70] ${shown ? '' : 'pointer-events-none'}`}
       aria-hidden={!shown}
     >
+      {/* Nur der abdunkelnde Backdrop blendet ein/aus — das Sheet selbst
+          behält durchgehend seinen vollen Liquid-Glass-Effekt. */}
       <button
         type="button"
-        className="absolute inset-0 bg-black/25 backdrop-blur-[2px]"
+        className={`absolute inset-0 bg-black/30 backdrop-blur-[2px] transition-opacity duration-[460ms] ease-[cubic-bezier(0.32,0.72,0,1)] ${
+          shown ? 'opacity-100' : 'opacity-0'
+        }`}
         onClick={handleClose}
         aria-label="Schließen"
       />
@@ -185,31 +201,107 @@ export function TodoDetailSheet({
             </button>
           </div>
 
-          <div className="flex items-center justify-between gap-3">
+          <div>
             <span className="text-[13px] font-medium text-[#222222]">Kategorie</span>
-            <div className="flex items-center gap-2">
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {/* Neuen Ordner anlegen */}
+              <button
+                type="button"
+                onClick={() => setCreating((v) => !v)}
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-dashed transition-colors ${
+                  creating
+                    ? 'border-[#222222]/40 bg-[#222222]/8 text-[#222222]'
+                    : 'border-[#222222]/25 text-[#222222]/55 hover:bg-[#222222]/5'
+                }`}
+                aria-label="Neuen Ordner anlegen"
+              >
+                <span className="text-[18px] font-light leading-none">+</span>
+              </button>
+
+              {/* Keine Kategorie */}
               <button
                 type="button"
                 onClick={() => onCategoryChange(undefined)}
-                className={`h-6 w-6 rounded-full border-[1.5px] border-dashed border-[#222222]/30 ${
-                  !categoryId ? 'ring-2 ring-[#222222]/25' : ''
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[12px] transition-colors ${
+                  !categoryId
+                    ? 'border-[#222222]/30 bg-[#222222]/8 text-[#222222]'
+                    : 'border-[#222222]/12 text-[#7D7D7D]'
                 }`}
-                aria-label="Keine Kategorie"
-              />
+              >
+                <span className="h-3 w-3 rounded-full border-[1.5px] border-dashed border-[#222222]/35" />
+                Keine
+              </button>
+
               {categories.map((cat) => (
                 <button
                   key={cat.id}
                   type="button"
                   onClick={() => onCategoryChange(cat.id)}
-                  style={{ backgroundColor: cat.color }}
-                  className={`h-6 w-6 rounded-full transition-transform active:scale-90 ${
-                    categoryId === cat.id ? 'ring-2 ring-offset-1 ring-[#222222]/40' : ''
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[12px] transition-colors ${
+                    categoryId === cat.id
+                      ? 'border-[#222222]/30 bg-[#222222]/8 text-[#222222]'
+                      : 'border-[#222222]/12 text-[#7D7D7D] hover:bg-[#222222]/4'
                   }`}
-                  aria-label={cat.name}
-                  title={cat.name}
-                />
+                >
+                  <span
+                    className="h-3 w-3 rounded-full"
+                    style={{ backgroundColor: cat.color }}
+                  />
+                  {cat.name}
+                </button>
               ))}
             </div>
+
+            {creating && (
+              <div className="mt-3 rounded-2xl border border-[#222222]/10 bg-white/50 p-3">
+                <input
+                  type="text"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="Ordnername"
+                  className="w-full rounded-xl border border-[#222222]/10 bg-white/70 px-3 py-2 text-[14px] text-[#222222] outline-none focus:border-[#222222]/25"
+                />
+                <div className="mt-2.5 flex flex-wrap gap-2">
+                  {NEW_FOLDER_COLORS.map((color) => (
+                    <button
+                      key={color}
+                      type="button"
+                      onClick={() => setNewColor(color)}
+                      style={{ backgroundColor: color }}
+                      className={`h-6 w-6 rounded-full transition-transform active:scale-90 ${
+                        newColor === color ? 'ring-2 ring-offset-1 ring-[#222222]/40' : ''
+                      }`}
+                      aria-label={`Farbe ${color}`}
+                    />
+                  ))}
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCreating(false);
+                      setNewName('');
+                    }}
+                    className="flex-1 rounded-xl border border-[#222222]/10 py-2 text-[12px] font-medium text-[#7D7D7D]"
+                  >
+                    Abbrechen
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!newName.trim()}
+                    onClick={() => {
+                      const id = onCreateCategory(newName.trim(), newColor);
+                      onCategoryChange(id);
+                      setCreating(false);
+                      setNewName('');
+                    }}
+                    className="flex-1 rounded-xl bg-[#222222] py-2 text-[12px] font-medium text-white disabled:opacity-40"
+                  >
+                    Anlegen
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-between">
@@ -241,7 +333,7 @@ export function TodoDetailSheet({
                   type="time"
                   value={reminderTime}
                   onChange={(e) => onReminderTimeChange(e.target.value)}
-                  className="w-full rounded-xl border border-[#222222]/10 bg-white/60 px-3 py-2.5 text-[14px] text-[#222222] outline-none focus:border-[#222222]/25"
+                  className="block w-full min-w-0 max-w-full appearance-none rounded-xl border border-[#222222]/10 bg-white/60 px-3 py-2.5 text-[14px] text-[#222222] outline-none focus:border-[#222222]/25"
                 />
               </div>
               {reminderTime && (

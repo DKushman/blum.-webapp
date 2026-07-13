@@ -137,6 +137,20 @@ export default function Home() {
     return map;
   }, [folders]);
 
+  // Presets + selbst angelegte Ordner (eindeutig, Presets zuerst)
+  const allCategories = useMemo(() => {
+    const map = new Map<string, Folder>();
+    for (const preset of CATEGORY_PRESETS) map.set(preset.id, preset);
+    for (const folder of folders) map.set(folder.id, folder);
+    return Array.from(map.values());
+  }, [folders]);
+
+  const createCategory = (name: string, color: string) => {
+    const id = `folder-${Date.now()}`;
+    setFolders((prev) => [...prev, { id, name, color }]);
+    return id;
+  };
+
   const formatDateString = (date: Date) => {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -581,13 +595,11 @@ export default function Home() {
     [currentMonth.getFullYear(), currentMonth.getMonth()]
   );
 
-  const renderTodoRow = (todo: Todo, highlightColor?: string) => (
+  const renderTodoRow = (todo: Todo) => (
     <SwipeableTodoRow
       key={`${formatDateString(displayDay)}-${todo.id}`}
       text={todo.text}
       completed={todo.completed}
-      categoryColor={getCategoryColor(todo.folderId)}
-      highlightColor={highlightColor}
       meta={todo.reminderEnabled || todo.time ? (todo.time ?? '') : undefined}
       onToggle={() => toggleTodoComplete(todo.id)}
       onEdit={() => openTodoSheet(todo)}
@@ -615,22 +627,28 @@ export default function Home() {
   const todoGroupNodes = groupedTodos.map((group) => {
     const name = getCategoryName(group.key || undefined);
     const color = getCategoryColor(group.key || undefined);
-    // Textmarker-Hintergrund nur, wenn mehrere Aufgaben in dieser Kategorie liegen
-    const highlight =
-      color && group.todos.length > 1 ? hexToRgba(color, 0.16) : undefined;
+    const marker = color ? hexToRgba(color, 0.32) : undefined;
     return (
       <div key={group.key || 'ungrouped'}>
         {name && (
-          <div className="notepad-line-item flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-[#222222]/45">
+          <div className="notepad-line-item flex items-center">
+            {/* Kategoriename mit Textmarker markiert, ganz links */}
             <span
-              className="h-2 w-2 rounded-full"
-              style={{ backgroundColor: color }}
-              aria-hidden
-            />
-            {name}
+              className="rounded-[3px] px-1.5 text-[13px] font-semibold text-[#222222]"
+              style={{ backgroundColor: marker }}
+            >
+              {name}
+            </span>
           </div>
         )}
-        {group.todos.map((todo) => renderTodoRow(todo, highlight))}
+        {color ? (
+          // Vertikaler Strich in der Kategoriefarbe, To-Dos leicht eingerückt
+          <div className="border-l-2 pl-3" style={{ borderColor: color }}>
+            {group.todos.map((todo) => renderTodoRow(todo))}
+          </div>
+        ) : (
+          group.todos.map((todo) => renderTodoRow(todo))
+        )}
       </div>
     );
   });
@@ -869,8 +887,9 @@ export default function Home() {
               reminderTime={sheetReminderTime}
               reminderOffset={sheetReminderOffset}
               categoryId={sheetCategoryId}
-              categories={CATEGORY_PRESETS}
+              categories={allCategories}
               onCategoryChange={setSheetCategoryId}
+              onCreateCategory={createCategory}
               onTextChange={setSheetText}
               onCompletedChange={setSheetCompleted}
               onReminderEnabledChange={setSheetReminderEnabled}
