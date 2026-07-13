@@ -60,24 +60,35 @@ export function TodoDetailSheet({
     dragging: false,
   });
   const [dragOffset, setDragOffset] = useState(0);
-  const [isVisible, setIsVisible] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [render, setRender] = useState(false);
+  const [shown, setShown] = useState(false);
 
+  // Ein-/Ausblenden getrennt vom Mount steuern, damit auch das Schließen
+  // (Weg-Tippen) sauber nach unten animiert, bevor das Sheet entfernt wird.
   useEffect(() => {
     if (isOpen) {
-      setIsVisible(true);
+      setRender(true);
       setDragOffset(0);
       document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
+      // Zwei Frames warten, damit die Startposition (100%) sicher gerendert ist,
+      // bevor nach oben animiert wird.
+      let raf2 = 0;
+      const raf1 = requestAnimationFrame(() => {
+        raf2 = requestAnimationFrame(() => setShown(true));
+      });
+      return () => {
+        cancelAnimationFrame(raf1);
+        cancelAnimationFrame(raf2);
+      };
     }
-    return () => {
-      document.body.style.overflow = '';
-    };
+    setShown(false);
+    document.body.style.overflow = '';
+    const timer = setTimeout(() => setRender(false), 460);
+    return () => clearTimeout(timer);
   }, [isOpen]);
 
   const handleClose = useCallback(() => {
-    setIsVisible(false);
-    setDragOffset(0);
     onClose();
   }, [onClose]);
 
@@ -85,6 +96,7 @@ export function TodoDetailSheet({
     const target = e.target as HTMLElement;
     if (target.closest('textarea, input, button, label')) return;
     dragRef.current = { startY: e.clientY, currentY: e.clientY, dragging: true };
+    setDragging(true);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
 
@@ -98,6 +110,7 @@ export function TodoDetailSheet({
   const handlePointerUp = () => {
     if (!dragRef.current.dragging) return;
     dragRef.current.dragging = false;
+    setDragging(false);
     if (dragOffset > DISMISS_THRESHOLD) {
       handleClose();
     } else {
@@ -105,14 +118,14 @@ export function TodoDetailSheet({
     }
   };
 
-  if (!isOpen && !isVisible) return null;
+  if (!render) return null;
 
   return (
     <div
-      className={`fixed inset-0 z-[70] transition-opacity duration-300 ${
-        isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
+      className={`fixed inset-0 z-[70] transition-opacity duration-[460ms] ease-[cubic-bezier(0.32,0.72,0,1)] ${
+        shown ? 'opacity-100' : 'opacity-0 pointer-events-none'
       }`}
-      aria-hidden={!isOpen}
+      aria-hidden={!shown}
     >
       <button
         type="button"
@@ -126,9 +139,11 @@ export function TodoDetailSheet({
         role="dialog"
         aria-modal="true"
         aria-label="Aufgabe bearbeiten"
-        className="absolute inset-x-0 bottom-0 mx-auto w-full max-w-md rounded-t-[24px] liquid-glass-sheet px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-2 transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
+        className={`absolute inset-x-0 bottom-0 mx-auto w-full max-w-md rounded-t-[28px] liquid-glass-sheet px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-2 ease-[cubic-bezier(0.32,0.72,0,1)] ${
+          dragging ? '' : 'transition-transform duration-[460ms]'
+        }`}
         style={{
-          transform: `translateY(${isOpen ? dragOffset : '100%'}px)`,
+          transform: `translateY(calc(${shown ? '0%' : '100%'} + ${shown ? dragOffset : 0}px))`,
         }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}

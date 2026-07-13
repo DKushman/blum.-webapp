@@ -248,6 +248,17 @@ export default function Home() {
     return foldersById.get(folderId)?.name ?? '—';
   };
 
+  /** 6-stelliges Hex → rgba mit Alpha (für Textmarker-Hintergrund) */
+  const hexToRgba = (hex: string, alpha: number): string | undefined => {
+    const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+    if (!m) return undefined;
+    const int = parseInt(m[1], 16);
+    const r = (int >> 16) & 255;
+    const g = (int >> 8) & 255;
+    const b = int & 255;
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  };
+
   const getCategoryName = (folderId?: string): string | undefined => {
     if (!folderId) return undefined;
     return (
@@ -428,7 +439,7 @@ export default function Home() {
     today.setHours(0, 0, 0, 0);
     const d = new Date(date);
     d.setHours(0, 0, 0, 0);
-    if (d.getTime() === today.getTime()) return 'Heute';
+    if (d.getTime() === today.getTime()) return `Heute, ${getWeekdayName(date).slice(0, 2)}`;
     return `${getWeekdayName(date).slice(0, 2)}, ${date.getDate()}. ${months[date.getMonth()].slice(0, 3)}`;
   };
 
@@ -570,12 +581,13 @@ export default function Home() {
     [currentMonth.getFullYear(), currentMonth.getMonth()]
   );
 
-  const renderTodoRow = (todo: Todo) => (
+  const renderTodoRow = (todo: Todo, highlightColor?: string) => (
     <SwipeableTodoRow
       key={`${formatDateString(displayDay)}-${todo.id}`}
       text={todo.text}
       completed={todo.completed}
       categoryColor={getCategoryColor(todo.folderId)}
+      highlightColor={highlightColor}
       meta={todo.reminderEnabled || todo.time ? (todo.time ?? '') : undefined}
       onToggle={() => toggleTodoComplete(todo.id)}
       onEdit={() => openTodoSheet(todo)}
@@ -603,8 +615,11 @@ export default function Home() {
   const todoGroupNodes = groupedTodos.map((group) => {
     const name = getCategoryName(group.key || undefined);
     const color = getCategoryColor(group.key || undefined);
+    // Textmarker-Hintergrund nur, wenn mehrere Aufgaben in dieser Kategorie liegen
+    const highlight =
+      color && group.todos.length > 1 ? hexToRgba(color, 0.16) : undefined;
     return (
-      <div key={group.key || 'ungrouped'} className="mb-1">
+      <div key={group.key || 'ungrouped'}>
         {name && (
           <div className="notepad-line-item flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-[#222222]/45">
             <span
@@ -615,7 +630,7 @@ export default function Home() {
             {name}
           </div>
         )}
-        {group.todos.map((todo) => renderTodoRow(todo))}
+        {group.todos.map((todo) => renderTodoRow(todo, highlight))}
       </div>
     );
   });
@@ -782,7 +797,7 @@ export default function Home() {
                     }}
                     placeholder=""
                     rows={1}
-                    className="min-w-0 flex-1 resize-none overflow-hidden bg-transparent text-[15px] leading-[24px] text-[#222222] outline-none placeholder:text-[#B8B4A8]"
+                    className="min-w-0 flex-1 resize-none overflow-hidden bg-transparent text-[15px] leading-[32px] text-[#222222] outline-none placeholder:text-[#B8B4A8]"
                   />
 
                   {/* 3-Punkte → volles Overlay öffnen (mehr Optionen für diese Aufgabe) */}
