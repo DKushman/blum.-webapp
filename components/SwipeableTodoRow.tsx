@@ -118,7 +118,7 @@ export function SwipeableTodoRow({
   const deleteWidth = Math.max(0, -dragX);
 
   return (
-    <div className="swipe-row notepad-line-item" data-todo-row>
+    <div className="swipe-row" data-todo-row>
       {/* Farbige Flächen, die mit dem Ziehen mitwachsen */}
       <div
         className={`swipe-panel swipe-panel-edit ${snapping ? 'snapping' : ''}`}
@@ -157,21 +157,24 @@ export function SwipeableTodoRow({
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
       >
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggle();
-          }}
-          onPointerDown={(e) => e.stopPropagation()}
-          style={circleStyle}
-          className={`mt-[9px] h-[14px] w-[14px] shrink-0 rounded-full border-[1.5px] transition-all duration-200 ${
-            completed
-              ? 'border-[#222222] bg-[#222222]'
-              : 'border-[#222222]/35 bg-transparent'
-          }`}
-          aria-label={completed ? 'Als offen markieren' : 'Als erledigt markieren'}
-        />
+        {/* Kreis exakt in der ersten Zeile zentriert (feste 32px-Zeilenbox) */}
+        <span className="flex h-[32px] shrink-0 items-center">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggle();
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            style={circleStyle}
+            className={`h-[14px] w-[14px] rounded-full border-[1.5px] transition-all duration-200 ${
+              completed
+                ? 'border-[#222222] bg-[#222222]'
+                : 'border-[#222222]/35 bg-transparent'
+            }`}
+            aria-label={completed ? 'Als offen markieren' : 'Als erledigt markieren'}
+          />
+        </span>
         <span
           className={`min-w-0 flex-1 text-left text-[15px] leading-[32px] text-[#222222] transition-all duration-200 ${
             completed ? 'line-through opacity-40' : ''

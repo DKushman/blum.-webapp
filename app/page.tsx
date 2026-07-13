@@ -634,7 +634,7 @@ export default function Home() {
           <div className="notepad-line-item flex items-center">
             {/* Kategoriename mit Textmarker markiert, ganz links */}
             <span
-              className="rounded-[3px] px-1.5 text-[13px] font-semibold text-[#222222]"
+              className="rounded-[3px] px-1.5 py-[1px] text-[13px] font-semibold leading-[20px] text-[#222222]"
               style={{ backgroundColor: marker }}
             >
               {name}
@@ -778,25 +778,27 @@ export default function Home() {
                 )}
                 {todoGroupNodes}
                 <div
-                  className="notepad-line-item relative flex items-center gap-2.5"
+                  className="notepad-line-item relative flex items-start gap-2.5"
                   data-no-day-swipe
                   data-todo-row
                 >
-                  {/* Kategorie-Auswahl auf derselben Zeile */}
-                  <button
-                    type="button"
-                    id="inline-category-btn"
-                    onClick={() => setShowInlineCategoryPicker((v) => !v)}
-                    style={
-                      getCategoryColor(inlineCategoryId)
-                        ? { borderColor: getCategoryColor(inlineCategoryId), backgroundColor: 'transparent' }
-                        : undefined
-                    }
-                    className={`h-[14px] w-[14px] shrink-0 rounded-full border-[1.5px] border-dashed transition-all ${
-                      inlineCategoryId ? 'border-solid' : 'border-[#222222]/25'
-                    }`}
-                    aria-label="Kategorie wählen"
-                  />
+                  {/* Kategorie-Auswahl auf derselben Zeile (in fester 32px-Zeilenbox) */}
+                  <span className="flex h-[32px] shrink-0 items-center">
+                    <button
+                      type="button"
+                      id="inline-category-btn"
+                      onClick={() => setShowInlineCategoryPicker((v) => !v)}
+                      style={
+                        getCategoryColor(inlineCategoryId)
+                          ? { borderColor: getCategoryColor(inlineCategoryId), backgroundColor: 'transparent' }
+                          : undefined
+                      }
+                      className={`h-[14px] w-[14px] rounded-full border-[1.5px] border-dashed transition-all ${
+                        inlineCategoryId ? 'border-solid' : 'border-[#222222]/25'
+                      }`}
+                      aria-label="Kategorie wählen"
+                    />
+                  </span>
                   <textarea
                     ref={notepadInputRef}
                     id="inline-todo-input"
@@ -820,18 +822,20 @@ export default function Home() {
 
                   {/* 3-Punkte → volles Overlay öffnen (mehr Optionen für diese Aufgabe) */}
                   {inlineNewTodoText.trim() && (
-                    <button
-                      type="button"
-                      id="inline-more-btn"
-                      onClick={() => {
-                        openNewTodoSheet(inlineNewTodoText.trim(), inlineCategoryId);
-                        setInlineNewTodoText('');
-                      }}
-                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[#222222]/50 transition-colors hover:bg-[#222222]/8 active:scale-95"
-                      aria-label="Weitere Optionen"
-                    >
-                      <span className="text-[17px] leading-none tracking-tight">⋯</span>
-                    </button>
+                    <span className="flex h-[32px] shrink-0 items-center">
+                      <button
+                        type="button"
+                        id="inline-more-btn"
+                        onClick={() => {
+                          openNewTodoSheet(inlineNewTodoText.trim(), inlineCategoryId);
+                          setInlineNewTodoText('');
+                        }}
+                        className="flex h-7 w-7 items-center justify-center rounded-full text-[#222222]/50 transition-colors hover:bg-[#222222]/8 active:scale-95"
+                        aria-label="Weitere Optionen"
+                      >
+                        <span className="text-[17px] leading-none tracking-tight">⋯</span>
+                      </button>
+                    </span>
                   )}
 
                   {showInlineCategoryPicker && (

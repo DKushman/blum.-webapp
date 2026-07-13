@@ -261,19 +261,15 @@ export function TodoDetailSheet({
                   placeholder="Ordnername"
                   className="w-full rounded-xl border border-[#222222]/10 bg-white/70 px-3 py-2 text-[14px] text-[#222222] outline-none focus:border-[#222222]/25"
                 />
-                <div className="mt-2.5 flex flex-wrap gap-2">
-                  {NEW_FOLDER_COLORS.map((color) => (
-                    <button
-                      key={color}
-                      type="button"
-                      onClick={() => setNewColor(color)}
-                      style={{ backgroundColor: color }}
-                      className={`h-6 w-6 rounded-full transition-transform active:scale-90 ${
-                        newColor === color ? 'ring-2 ring-offset-1 ring-[#222222]/40' : ''
-                      }`}
-                      aria-label={`Farbe ${color}`}
-                    />
-                  ))}
+                <div className="mt-2.5 flex items-center gap-2.5">
+                  <input
+                    type="color"
+                    value={newColor}
+                    onChange={(e) => setNewColor(e.target.value)}
+                    className="h-9 w-12 shrink-0 cursor-pointer rounded-lg border border-[#222222]/10 bg-transparent p-0.5"
+                    aria-label="Ordnerfarbe wählen"
+                  />
+                  <span className="text-[12px] text-[#7D7D7D]">Farbe wählen</span>
                 </div>
                 <div className="mt-3 flex gap-2">
                   <button
