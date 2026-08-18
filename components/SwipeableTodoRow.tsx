@@ -12,6 +12,8 @@ type SwipeableTodoRowProps = {
   highlightColor?: string;
   /** Optionaler Zusatz (z. B. Uhrzeit) rechts vom Text */
   meta?: string;
+  /** Überfällig von einem früheren Tag */
+  overdue?: boolean;
   onToggle: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -28,6 +30,7 @@ export function SwipeableTodoRow({
   categoryColor,
   highlightColor,
   meta,
+  overdue = false,
   onToggle,
   onEdit,
   onDelete,
@@ -110,9 +113,11 @@ export function SwipeableTodoRow({
 
   const circleStyle = completed
     ? { backgroundColor: categoryColor ?? '#222222', borderColor: categoryColor ?? '#222222' }
-    : categoryColor
-      ? { borderColor: categoryColor, backgroundColor: 'transparent' }
-      : undefined;
+    : overdue
+      ? { borderColor: '#FF3B30', backgroundColor: 'transparent' }
+      : categoryColor
+        ? { borderColor: categoryColor, backgroundColor: 'transparent' }
+        : undefined;
 
   const editWidth = Math.max(0, dragX);
   const deleteWidth = Math.max(0, -dragX);
@@ -170,7 +175,9 @@ export function SwipeableTodoRow({
             className={`h-[14px] w-[14px] rounded-full border-[1.5px] transition-all duration-200 ${
               completed
                 ? 'border-[#222222] bg-[#222222]'
-                : 'border-[#222222]/35 bg-transparent'
+                : overdue
+                  ? 'border-[#FF3B30] bg-transparent'
+                  : 'border-[#222222]/35 bg-transparent'
             }`}
             aria-label={completed ? 'Als offen markieren' : 'Als erledigt markieren'}
           />

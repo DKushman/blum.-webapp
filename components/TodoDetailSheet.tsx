@@ -1,11 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  REMINDER_OFFSET_OPTIONS,
-  REMINDER_OFFSET_SHORT,
-  type ReminderOffset,
-} from '@/lib/push/reminder-offset';
 
 type Category = { id: string; name: string; color: string };
 
@@ -17,7 +12,6 @@ type TodoDetailSheetProps = {
   completed: boolean;
   reminderEnabled: boolean;
   reminderTime: string;
-  reminderOffset: ReminderOffset;
   categoryId?: string;
   categories: Category[];
   onCategoryChange: (value: string | undefined) => void;
@@ -27,7 +21,6 @@ type TodoDetailSheetProps = {
   onCompletedChange: (value: boolean) => void;
   onReminderEnabledChange: (value: boolean) => void;
   onReminderTimeChange: (value: string) => void;
-  onReminderOffsetChange: (value: ReminderOffset) => void;
   onSave: () => void;
   onDelete: () => void;
   onClose: () => void;
@@ -48,7 +41,6 @@ export function TodoDetailSheet({
   completed,
   reminderEnabled,
   reminderTime,
-  reminderOffset,
   categoryId,
   categories,
   onCategoryChange,
@@ -57,7 +49,6 @@ export function TodoDetailSheet({
   onCompletedChange,
   onReminderEnabledChange,
   onReminderTimeChange,
-  onReminderOffsetChange,
   onSave,
   onDelete,
   onClose,
@@ -320,41 +311,16 @@ export function TodoDetailSheet({
           </div>
 
           {reminderEnabled && (
-            <div className="space-y-3">
-              <div>
-                <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-[#7D7D7D]">
-                  Uhrzeit
-                </label>
-                <input
-                  type="time"
-                  value={reminderTime}
-                  onChange={(e) => onReminderTimeChange(e.target.value)}
-                  className="block w-full min-w-0 max-w-full appearance-none rounded-xl border border-[#222222]/10 bg-white/60 px-3 py-2.5 text-[14px] text-[#222222] outline-none focus:border-[#222222]/25"
-                />
-              </div>
-              {reminderTime && (
-                <div>
-                  <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-[#7D7D7D]">
-                    Vorher erinnern
-                  </label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {REMINDER_OFFSET_OPTIONS.map((opt) => (
-                      <button
-                        key={opt}
-                        type="button"
-                        onClick={() => onReminderOffsetChange(opt)}
-                        className={`rounded-full px-3 py-1.5 text-[12px] font-medium transition-colors ${
-                          reminderOffset === opt
-                            ? 'bg-[#222222] text-white'
-                            : 'bg-[#222222]/6 text-[#7D7D7D] hover:bg-[#222222]/10'
-                        }`}
-                      >
-                        {REMINDER_OFFSET_SHORT[opt]}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
+            <div>
+              <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-[#7D7D7D]">
+                Erinnerung um
+              </label>
+              <input
+                type="time"
+                value={reminderTime}
+                onChange={(e) => onReminderTimeChange(e.target.value)}
+                className="block w-full min-w-0 max-w-full appearance-none rounded-xl border border-[#222222]/10 bg-white/60 px-3 py-2.5 text-[14px] text-[#222222] outline-none focus:border-[#222222]/25"
+              />
             </div>
           )}
         </div>

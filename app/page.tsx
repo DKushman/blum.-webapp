@@ -11,12 +11,6 @@ import { FitnessDashboard } from '@/components/FitnessDashboard';
 import { TodoDetailSheet } from '@/components/TodoDetailSheet';
 import { SwipeableTodoRow } from '@/components/SwipeableTodoRow';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
-import {
-  REMINDER_OFFSET_OPTIONS,
-  REMINDER_OFFSET_SHORT,
-  normalizeReminderOffset,
-  type ReminderOffset,
-} from '@/lib/push/reminder-offset';
 
 type Folder = {
   id: string;
@@ -35,8 +29,6 @@ type Todo = {
   reminderEnabled?: boolean;
   /** Erinnerungszeit als HH:MM */
   reminderTime?: string;
-  /** Wie lange vor dem Termin erinnert wird */
-  reminderOffset?: ReminderOffset;
   date: string; // YYYY-MM-DD format — geplanter Tag
   completed: boolean;
   /** Wenn erledigt: Tag, an dem abgehakt (für Anzeige); fehlt bei alten Daten → Fallback `date` */
@@ -78,7 +70,6 @@ export default function Home() {
   const [sheetCompleted, setSheetCompleted] = useState(false);
   const [sheetReminderEnabled, setSheetReminderEnabled] = useState(false);
   const [sheetReminderTime, setSheetReminderTime] = useState('');
-  const [sheetReminderOffset, setSheetReminderOffset] = useState<ReminderOffset>('30m');
   const [sheetCategoryId, setSheetCategoryId] = useState<string | undefined>(undefined);
   const [showMonthPicker, setShowMonthPicker] = useState(false);
   const [showDeleteTodoModal, setShowDeleteTodoModal] = useState(false);
@@ -283,7 +274,7 @@ export default function Home() {
 
   const isOverdue = (todo: Todo) => {
     if (todo.completed) return false;
-    const todoDate = new Date(todo.date);
+    const todoDate = new Date(todo.date + 'T00:00:00');
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     todoDate.setHours(0, 0, 0, 0);
@@ -375,7 +366,6 @@ export default function Home() {
     setSheetCompleted(todo.completed);
     setSheetReminderEnabled(todo.reminderEnabled ?? false);
     setSheetReminderTime(parseHhMmFromTodo(todo));
-    setSheetReminderOffset(normalizeReminderOffset(todo.reminderOffset));
     setSheetCategoryId(todo.folderId);
   };
 
@@ -393,7 +383,6 @@ export default function Home() {
     setSheetCompleted(false);
     setSheetReminderEnabled(false);
     setSheetReminderTime('');
-    setSheetReminderOffset('30m');
     setSheetCategoryId(prefillCategory);
   };
 
@@ -404,7 +393,6 @@ export default function Home() {
     setSheetCompleted(false);
     setSheetReminderEnabled(false);
     setSheetReminderTime('');
-    setSheetReminderOffset('30m');
     setSheetCategoryId(undefined);
   };
 
@@ -426,7 +414,6 @@ export default function Home() {
       time: timeDisplay,
       reminderEnabled,
       reminderTime: reminderEnabled ? sheetReminderTime : undefined,
-      reminderOffset: reminderEnabled ? sheetReminderOffset : undefined,
     };
 
     if (sheetIsNew) {
@@ -600,6 +587,7 @@ export default function Home() {
       key={`${formatDateString(displayDay)}-${todo.id}`}
       text={todo.text}
       completed={todo.completed}
+      overdue={isOverdue(todo)}
       meta={todo.reminderEnabled || todo.time ? (todo.time ?? '') : undefined}
       onToggle={() => toggleTodoComplete(todo.id)}
       onEdit={() => openTodoSheet(todo)}
@@ -889,7 +877,6 @@ export default function Home() {
               completed={sheetCompleted}
               reminderEnabled={sheetReminderEnabled}
               reminderTime={sheetReminderTime}
-              reminderOffset={sheetReminderOffset}
               categoryId={sheetCategoryId}
               categories={allCategories}
               onCategoryChange={setSheetCategoryId}
@@ -898,7 +885,6 @@ export default function Home() {
               onCompletedChange={setSheetCompleted}
               onReminderEnabledChange={setSheetReminderEnabled}
               onReminderTimeChange={setSheetReminderTime}
-              onReminderOffsetChange={setSheetReminderOffset}
               onSave={saveTodoSheet}
               onDelete={deleteFromSheet}
               onClose={closeTodoSheet}

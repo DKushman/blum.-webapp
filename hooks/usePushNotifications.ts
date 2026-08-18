@@ -3,9 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { buildReminderAt } from "@/lib/push/build-reminder";
-import type { TodoDigestSnapshot } from "@/lib/push/daily-digest";
-import type { ReminderOffset } from "@/lib/push/reminder-offset";
-import { normalizeReminderOffset } from "@/lib/push/reminder-offset";
 import type { ReminderPayload } from "@/lib/push/types";
 import { getOrCreateDeviceId, urlBase64ToUint8Array } from "@/lib/push/device-id";
 
@@ -15,19 +12,9 @@ type TodoLike = {
   date: string;
   reminderEnabled?: boolean;
   reminderTime?: string;
-  reminderOffset?: ReminderOffset;
   completed: boolean;
   completedOn?: string;
 };
-
-function toDigestSnapshot(todos: TodoLike[]): TodoDigestSnapshot[] {
-  return todos.map((todo) => ({
-    id: todo.id,
-    date: todo.date,
-    completed: todo.completed,
-    completedOn: todo.completedOn,
-  }));
-}
 
 type PushStatus = "unsupported" | "default" | "granted" | "denied" | "loading";
 
@@ -97,8 +84,7 @@ export function usePushNotifications(todos: TodoLike[]) {
     for (const todo of nextTodos) {
       if (todo.completed || !todo.reminderEnabled || !todo.reminderTime) continue;
 
-      const offset = normalizeReminderOffset(todo.reminderOffset);
-      const remindAt = buildReminderAt(todo.date, todo.reminderTime, offset);
+      const remindAt = buildReminderAt(todo.date, todo.reminderTime);
       if (!remindAt) continue;
       if (new Date(remindAt).getTime() < now - 60_000) continue;
 
@@ -114,7 +100,6 @@ export function usePushNotifications(todos: TodoLike[]) {
         todoId: todo.id,
         text: timeSuffix ? `${todo.text} · ${timeSuffix}` : todo.text,
         remindAt,
-        offset,
       });
     }
 
@@ -124,7 +109,6 @@ export function usePushNotifications(todos: TodoLike[]) {
       body: JSON.stringify({
         deviceId,
         reminders,
-        digestTodos: toDigestSnapshot(nextTodos),
       }),
     });
 
