@@ -18,7 +18,9 @@ type TodoLike = {
 
 type PushStatus = "unsupported" | "default" | "granted" | "denied" | "loading";
 
-const POLL_INTERVAL_MS = 45_000;
+const POLL_INTERVAL_MS = 30_000;
+/** Lokale Fallback-Benachrichtigung: max. 1 Min vor Fälligkeit prüfen. */
+const LOCAL_CHECK_MS = 15_000;
 
 async function waitForServiceWorker() {
   if (!("serviceWorker" in navigator)) return null;
@@ -28,6 +30,39 @@ async function waitForServiceWorker() {
   return navigator.serviceWorker.ready;
 }
 
+function formatReminderBody(todo: TodoLike) {
+  const [h, m] = (todo.reminderTime ?? "").split(":");
+  const timeSuffix =
+    h && m
+      ? m === "00"
+        ? `${Number(h)} Uhr`
+        : `${h}:${m} Uhr`
+      : null;
+  return timeSuffix ? `${todo.text} · ${timeSuffix}` : todo.text;
+}
+
+function buildUpcomingReminders(nextTodos: TodoLike[], now = Date.now()) {
+  const reminders: ReminderPayload[] = [];
+
+  for (const todo of nextTodos) {
+    if (todo.completed || !todo.reminderEnabled || !todo.reminderTime) continue;
+
+    const remindAt = buildReminderAt(todo.date, todo.reminderTime);
+    if (!remindAt) continue;
+
+    // Vergangenheit > 2 Min: überspringen. Sonst (inkl. „gleich fällig“) syncen.
+    if (new Date(remindAt).getTime() < now - 120_000) continue;
+
+    reminders.push({
+      todoId: todo.id,
+      text: formatReminderBody(todo),
+      remindAt,
+    });
+  }
+
+  return reminders;
+}
+
 export function usePushNotifications(todos: TodoLike[]) {
   const [status, setStatus] = useState<PushStatus>("default");
   const [isSubscribed, setIsSubscribed] = useState(false);
@@ -35,6 +70,9 @@ export function usePushNotifications(todos: TodoLike[]) {
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
   const syncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const localFiredRef = useRef<Set<string>>(new Set());
+  const todosRef = useRef(todos);
+  todosRef.current = todos;
 
   const pollDueReminders = useCallback(async () => {
     if (Notification.permission !== "granted") return;
@@ -78,30 +116,7 @@ export function usePushNotifications(todos: TodoLike[]) {
     if (Notification.permission !== "granted") return;
 
     const deviceId = getOrCreateDeviceId();
-    const now = Date.now();
-    const reminders: ReminderPayload[] = [];
-
-    for (const todo of nextTodos) {
-      if (todo.completed || !todo.reminderEnabled || !todo.reminderTime) continue;
-
-      const remindAt = buildReminderAt(todo.date, todo.reminderTime);
-      if (!remindAt) continue;
-      if (new Date(remindAt).getTime() < now - 60_000) continue;
-
-      const [h, m] = todo.reminderTime.split(":");
-      const timeSuffix =
-        h && m
-          ? m === "00"
-            ? `${Number(h)} Uhr`
-            : `${h}:${m} Uhr`
-          : null;
-
-      reminders.push({
-        todoId: todo.id,
-        text: timeSuffix ? `${todo.text} · ${timeSuffix}` : todo.text,
-        remindAt,
-      });
-    }
+    const reminders = buildUpcomingReminders(nextTodos);
 
     const response = await fetch("/api/todos/sync", {
       method: "POST",
@@ -125,7 +140,9 @@ export function usePushNotifications(todos: TodoLike[]) {
 
     setSyncStatus(
       reminders.length > 0
-        ? `${reminders.length} Erinnerung(en) synchronisiert`
+        ? `${reminders.length} Erinnerung(en) geplant${
+            typeof data.scheduled === "number" ? ` · ${data.scheduled} per Push` : ""
+          }`
         : null
     );
   }, []);
@@ -138,7 +155,7 @@ export function usePushNotifications(todos: TodoLike[]) {
       syncReminders(todos).catch(() => {
         setSyncStatus("Sync fehlgeschlagen — bitte Verbindung prüfen.");
       });
-    }, 500);
+    }, 400);
 
     return () => {
       if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
@@ -163,6 +180,52 @@ export function usePushNotifications(todos: TodoLike[]) {
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [isSubscribed, pollDueReminders]);
+
+  // Lokaler Fallback: wenn die App offen ist, zur exakten Uhrzeit benachrichtigen
+  // (ergänzt QStash, falls Push verzögert oder iOS die Push drosselt).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (Notification.permission !== "granted") return;
+
+    const tick = async () => {
+      const now = Date.now();
+      for (const todo of todosRef.current) {
+        if (todo.completed || !todo.reminderEnabled || !todo.reminderTime) continue;
+        const remindAt = buildReminderAt(todo.date, todo.reminderTime);
+        if (!remindAt) continue;
+        const at = new Date(remindAt).getTime();
+        const key = `${todo.id}:${remindAt}`;
+        if (localFiredRef.current.has(key)) continue;
+        // Fenster: 0–90 Sekunden nach Fälligkeit
+        if (now < at || now - at > 90_000) continue;
+
+        localFiredRef.current.add(key);
+        try {
+          const registration = await waitForServiceWorker();
+          const body = formatReminderBody(todo);
+          if (registration?.showNotification) {
+            await registration.showNotification("David von Blume", {
+              body,
+              icon: "/icons/icon-192.png",
+              badge: "/icons/icon-192.png",
+              tag: key,
+              data: { url: "/" },
+            });
+          } else {
+            new Notification("David von Blume", { body, tag: key });
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+
+    void tick();
+    const id = setInterval(() => {
+      void tick();
+    }, LOCAL_CHECK_MS);
+    return () => clearInterval(id);
+  }, [todos, isSubscribed, status]);
 
   const subscribe = useCallback(async () => {
     setError(null);

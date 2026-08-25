@@ -27,25 +27,33 @@ export async function scheduleReminders(
   reminders: ReminderPayload[]
 ) {
   const client = getQStashClient();
-  if (!client) return 0;
+  if (!client) {
+    console.warn("QStash nicht konfiguriert — Erinnerungen nur per Poll/Lokal.");
+    return 0;
+  }
 
   const dispatchUrl = `${getAppUrl()}/api/cron/reminders`;
-  const maxScheduleAt = Date.now() + MAX_QSTASH_DELAY_MS;
+  const now = Date.now();
+  const maxScheduleAt = now + MAX_QSTASH_DELAY_MS;
   let scheduled = 0;
 
   for (const reminder of reminders) {
     const remindAtMs = new Date(reminder.remindAt).getTime();
-    if (Number.isNaN(remindAtMs) || remindAtMs <= Date.now()) continue;
+    if (Number.isNaN(remindAtMs)) continue;
+    // Schon vorbei: nicht mehr planen (Poll/Lokal übernimmt nahe Fälligkeit)
+    if (remindAtMs <= now - 5_000) continue;
+    // QStash Hobby: max. 7 Tage voraus
     if (remindAtMs > maxScheduleAt) continue;
+
+    // notBefore: mind. „jetzt“, damit QStash sehr nahe Erinnerungen sofort akzeptiert
+    const notBefore = Math.max(Math.floor(now / 1000), Math.floor(remindAtMs / 1000));
 
     try {
       await client.publishJSON({
         url: dispatchUrl,
         body: { deviceId, reminder },
-        notBefore: Math.floor(remindAtMs / 1000),
-        // Verhindert doppelte Einplanungen: Jeder erneute Sync für dieselbe
-        // Aufgabe+Uhrzeit erzeugt keinen neuen Job, sondern greift auf den
-        // bestehenden zu. So kommt pro Erinnerung nur eine Benachrichtigung.
+        notBefore,
+        // Verhindert doppelte Einplanungen für dieselbe Aufgabe+Uhrzeit
         deduplicationId: `${deviceId}:${reminder.todoId}:${reminder.remindAt}`,
       });
       scheduled += 1;

@@ -9,8 +9,6 @@ import {
 } from "@/lib/push/dispatch";
 import { getAppUrl } from "@/lib/qstash";
 
-const LOOKBACK_MS = 2 * 60 * 1000;
-
 function isCronAuthorized(request: Request) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) return process.env.NODE_ENV !== "production";
@@ -30,13 +28,49 @@ async function verifyQStash(
   const body = await request.text();
   if (!signature) return null;
 
+  const receiver = new Receiver({
+    currentSigningKey: current,
+    nextSigningKey: next,
+  });
+
+  // Mehrere URL-Varianten: Redirects / Custom Domain / Production-URL
+  // dürfen die Signatur-Prüfung nicht killen.
+  const appUrl = getAppUrl();
+  const urlCandidates = Array.from(
+    new Set(
+      [
+        `${appUrl}/api/cron/reminders`,
+        request.url,
+        process.env.VERCEL_URL
+          ? `https://${process.env.VERCEL_URL}/api/cron/reminders`
+          : null,
+        "https://blum-one.vercel.app/api/cron/reminders",
+      ].filter(Boolean) as string[]
+    )
+  );
+
+  let verified = false;
+  for (const url of urlCandidates) {
+    try {
+      await receiver.verify({ signature, body, url });
+      verified = true;
+      break;
+    } catch {
+      /* try next */
+    }
+  }
+
+  // Letzter Fallback: ohne URL prüfen (manche QStash-Setups)
+  if (!verified) {
+    try {
+      await receiver.verify({ signature, body });
+      verified = true;
+    } catch {
+      return null;
+    }
+  }
+
   try {
-    const receiver = new Receiver({
-      currentSigningKey: current,
-      nextSigningKey: next,
-    });
-    const verifyUrl = `${getAppUrl()}/api/cron/reminders`;
-    await receiver.verify({ signature, body, url: verifyUrl });
     const parsed = JSON.parse(body) as {
       deviceId?: string;
       reminder?: ReminderPayload;
@@ -69,8 +103,6 @@ export async function GET(request: Request) {
   }
 
   const now = Date.now();
-  const windowStart = now - LOOKBACK_MS;
-
   const deviceIds = (await redis.smembers(REDIS_KEYS.devices)) as string[];
   let sent = 0;
   let checked = 0;
@@ -81,5 +113,5 @@ export async function GET(request: Request) {
     sent += result.sent;
   }
 
-  return NextResponse.json({ ok: true, checked, sent, devices: deviceIds.length, windowStart });
+  return NextResponse.json({ ok: true, checked, sent, devices: deviceIds.length });
 }

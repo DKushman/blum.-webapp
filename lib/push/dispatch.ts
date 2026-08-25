@@ -4,7 +4,8 @@ import { getRedis, REDIS_KEYS } from "@/lib/redis";
 import type { PushSubscriptionPayload, ReminderPayload } from "@/lib/push/types";
 import { sendPushNotification } from "@/lib/push/web-push-server";
 
-const LOOKBACK_MS = 2 * 60 * 1000;
+/** Poll/Backup: Erinnerungen bis 2h nach Fälligkeit noch nachliefern. */
+const LOOKBACK_MS = 2 * 60 * 60 * 1000;
 
 export async function dispatchReminder(
   deviceId: string,
