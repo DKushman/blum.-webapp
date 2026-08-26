@@ -10,6 +10,7 @@ import {
 import { FitnessDashboard } from '@/components/FitnessDashboard';
 import { TodoDetailSheet } from '@/components/TodoDetailSheet';
 import { SwipeableTodoRow } from '@/components/SwipeableTodoRow';
+import { PushNotificationBanner } from '@/components/PushNotificationBanner';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
 
 type Folder = {
@@ -582,18 +583,31 @@ export default function Home() {
     [currentMonth.getFullYear(), currentMonth.getMonth()]
   );
 
-  const renderTodoRow = (todo: Todo) => (
-    <SwipeableTodoRow
-      key={`${formatDateString(displayDay)}-${todo.id}`}
-      text={todo.text}
-      completed={todo.completed}
-      overdue={isOverdue(todo)}
-      meta={todo.reminderEnabled || todo.time ? (todo.time ?? '') : undefined}
-      onToggle={() => toggleTodoComplete(todo.id)}
-      onEdit={() => openTodoSheet(todo)}
-      onDelete={() => requestDeleteTodo(todo)}
-    />
-  );
+  const renderTodoRow = (todo: Todo) => {
+    const categoryColor = getCategoryColor(todo.folderId);
+    const categoryName = getCategoryName(todo.folderId);
+    const metaTags: { label: string; color?: string }[] = [];
+    if (todo.time) metaTags.push({ label: todo.time });
+    if (categoryName && categoryColor) {
+      metaTags.push({ label: categoryName, color: categoryColor });
+    } else if (categoryName) {
+      metaTags.push({ label: categoryName });
+    }
+
+    return (
+      <SwipeableTodoRow
+        key={`${formatDateString(displayDay)}-${todo.id}`}
+        text={todo.text}
+        completed={todo.completed}
+        overdue={isOverdue(todo)}
+        categoryColor={categoryColor}
+        metaTags={metaTags.length > 0 ? metaTags : undefined}
+        onToggle={() => toggleTodoComplete(todo.id)}
+        onEdit={() => openTodoSheet(todo)}
+        onDelete={() => requestDeleteTodo(todo)}
+      />
+    );
+  };
 
   // Nach Kategorie gruppieren: gleiche Kategorie steht untereinander.
   // Reihenfolge: erst ohne Kategorie, dann in Preset-Reihenfolge.
@@ -760,6 +774,23 @@ export default function Home() {
                 notepadInputRef.current?.focus();
               }}
             >
+              {!push.isSubscribed && (
+                <div className="pt-3" data-no-day-swipe>
+                  <PushNotificationBanner
+                    status={push.status}
+                    isSubscribed={push.isSubscribed}
+                    error={push.error}
+                    syncStatus={push.syncStatus}
+                    onSubscribe={() => {
+                      void push.subscribe();
+                    }}
+                    onUnsubscribe={() => {
+                      void push.unsubscribe();
+                    }}
+                    canUsePush={push.canUsePush}
+                  />
+                </div>
+              )}
               <div id="notes-list-inner" key={displayDayKey} className="day-view-content cursor-text pt-3 pb-10">
                 {currentTodos.length === 0 && !inlineNewTodoText && (
                   <p className="notepad-line-item text-[13px] text-[#B8B4A8]">Tippe, um zu schreiben…</p>
@@ -883,7 +914,14 @@ export default function Home() {
               onCreateCategory={createCategory}
               onTextChange={setSheetText}
               onCompletedChange={setSheetCompleted}
-              onReminderEnabledChange={setSheetReminderEnabled}
+              onReminderEnabledChange={(enabled) => {
+                setSheetReminderEnabled(enabled);
+                // User-Geste: Push-Permission + Subscription anfordern, damit
+                // Erinnerungen auch bei geschlossener App ankommen.
+                if (enabled && !push.isSubscribed) {
+                  void push.subscribe();
+                }
+              }}
               onReminderTimeChange={setSheetReminderTime}
               onSave={saveTodoSheet}
               onDelete={deleteFromSheet}

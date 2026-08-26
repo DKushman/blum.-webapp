@@ -57,8 +57,9 @@ export function PushNotificationBanner({
   return (
     <div className="mb-4 rounded-2xl border border-[#FFB6C1] bg-white px-4 py-3 shadow-sm">
       <p className="text-sm text-[#222222]">
-        <strong className="font-semibold">Erinnerungen auf dem iPhone:</strong>{" "}
-        App zum Home-Bildschirm hinzufügen, dann Benachrichtigungen aktivieren.
+        <strong className="font-semibold">Push-Erinnerungen:</strong>{" "}
+        Damit Benachrichtigungen auch ankommen, wenn die App zu ist — auf dem
+        iPhone zuerst zum Home-Bildschirm hinzufügen, dann aktivieren.
       </p>
       <button
         type="button"

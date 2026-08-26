@@ -2,6 +2,12 @@
 
 import { useRef, useState } from 'react';
 
+export type TodoMetaTag = {
+  label: string;
+  /** Wenn gesetzt: Tag in dieser Farbe (Text + leichter Hintergrund) */
+  color?: string;
+};
+
 type SwipeableTodoRowProps = {
   /** Sichtbarer Text der Aufgabe */
   text: string;
@@ -10,8 +16,8 @@ type SwipeableTodoRowProps = {
   categoryColor?: string;
   /** Textmarker-Hintergrund (rgba) für gruppierte Aufgaben */
   highlightColor?: string;
-  /** Optionaler Zusatz (z. B. Uhrzeit) rechts vom Text */
-  meta?: string;
+  /** Meta-Tags unter dem Titel (Uhrzeit, Kategorie, …) */
+  metaTags?: TodoMetaTag[];
   /** Überfällig von einem früheren Tag */
   overdue?: boolean;
   onToggle: () => void;
@@ -24,12 +30,21 @@ const TRIGGER_PX = 72;
 const MAX_DRAG_PX = 110;
 const TAP_SLOP_PX = 6;
 
+function hexToRgba(hex: string, alpha: number): string {
+  const raw = hex.replace('#', '');
+  if (raw.length !== 6) return `rgba(0,0,0,${alpha})`;
+  const r = parseInt(raw.slice(0, 2), 16);
+  const g = parseInt(raw.slice(2, 4), 16);
+  const b = parseInt(raw.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
 export function SwipeableTodoRow({
   text,
   completed,
   categoryColor,
   highlightColor,
-  meta,
+  metaTags,
   overdue = false,
   onToggle,
   onEdit,
@@ -121,6 +136,7 @@ export function SwipeableTodoRow({
 
   const editWidth = Math.max(0, dragX);
   const deleteWidth = Math.max(0, -dragX);
+  const hasMeta = Boolean(metaTags && metaTags.length > 0);
 
   return (
     <div className="swipe-row" data-todo-row>
@@ -183,13 +199,39 @@ export function SwipeableTodoRow({
           />
         </span>
         <span
-          className={`min-w-0 flex-1 text-left text-[15px] leading-[32px] text-[#222222] transition-all duration-200 ${
-            completed ? 'line-through opacity-40' : ''
+          className={`min-w-0 flex-1 text-left transition-all duration-200 ${
+            completed ? 'opacity-40' : ''
           }`}
         >
-          {text}
-          {meta && (
-            <span className="ml-1.5 text-[11px] text-[#9A9A9A] no-underline">{meta}</span>
+          <span
+            className={`block text-[15px] leading-[32px] text-[#222222] ${
+              completed ? 'line-through' : ''
+            }`}
+          >
+            {text}
+          </span>
+          {hasMeta && (
+            <span className="todo-meta-legend -mt-0.5 mb-1 flex flex-wrap items-center gap-1.5">
+              {metaTags!.map((tag) => (
+                <span
+                  key={`${tag.label}-${tag.color ?? 'plain'}`}
+                  className="inline-flex max-w-full items-center truncate rounded-md px-1.5 py-[2px] text-[10px] font-semibold leading-tight tracking-wide"
+                  style={
+                    tag.color
+                      ? {
+                          color: tag.color,
+                          backgroundColor: hexToRgba(tag.color, 0.18),
+                        }
+                      : {
+                          color: '#7D7D7D',
+                          backgroundColor: 'rgba(34, 34, 34, 0.06)',
+                        }
+                  }
+                >
+                  {tag.label}
+                </span>
+              ))}
+            </span>
           )}
         </span>
       </div>

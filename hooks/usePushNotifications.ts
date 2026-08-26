@@ -26,8 +26,45 @@ async function waitForServiceWorker() {
   if (!("serviceWorker" in navigator)) return null;
   const registration = await navigator.serviceWorker.getRegistration("/sw.js");
   if (registration) return registration;
-  await navigator.serviceWorker.register("/sw.js");
+  // In Development ist Serwist oft deaktiviert — trotzdem versuchen.
+  try {
+    await navigator.serviceWorker.register("/sw.js");
+  } catch {
+    return null;
+  }
   return navigator.serviceWorker.ready;
+}
+
+async function postSubscriptionToServer(
+  subscription: PushSubscription
+): Promise<void> {
+  const json = subscription.toJSON();
+  if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) {
+    throw new Error("Ungültige Push-Subscription");
+  }
+
+  const deviceId = getOrCreateDeviceId();
+  const response = await fetch("/api/push/subscribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      deviceId,
+      subscription: {
+        endpoint: json.endpoint,
+        keys: {
+          p256dh: json.keys.p256dh,
+          auth: json.keys.auth,
+        },
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const data = (await response.json().catch(() => ({}))) as {
+      error?: string;
+    };
+    throw new Error(data.error ?? "Subscription fehlgeschlagen");
+  }
 }
 
 function formatReminderBody(todo: TodoLike) {
@@ -89,6 +126,8 @@ export function usePushNotifications(todos: TodoLike[]) {
     }
   }, []);
 
+  // Bestehende Browser-Subscription wieder mit dem Server verknüpfen
+  // (z. B. nach Redis-Verlust oder App-Update), sonst bleiben Hintergrund-Pushs tot.
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -104,12 +143,47 @@ export function usePushNotifications(todos: TodoLike[]) {
 
     setStatus(Notification.permission as PushStatus);
 
-    waitForServiceWorker()
-      .then((registration) =>
-        registration?.pushManager.getSubscription()
-      )
-      .then((sub) => setIsSubscribed(Boolean(sub)))
-      .catch(() => setIsSubscribed(false));
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const registration = await waitForServiceWorker();
+        const existing = await registration?.pushManager.getSubscription();
+        if (cancelled) return;
+
+        if (existing) {
+          await postSubscriptionToServer(existing);
+          if (!cancelled) setIsSubscribed(true);
+          return;
+        }
+
+        // Permission schon erteilt, aber keine Push-Subscription → still neu anlegen
+        // (ohne Permission-Prompt; nötig für echte Hintergrund-Pushs).
+        if (Notification.permission !== "granted") {
+          setIsSubscribed(false);
+          return;
+        }
+
+        const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+        if (!vapidPublicKey || !registration) {
+          setIsSubscribed(false);
+          return;
+        }
+
+        const subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+        });
+        await postSubscriptionToServer(subscription);
+        if (!cancelled) setIsSubscribed(true);
+      } catch {
+        if (!cancelled) setIsSubscribed(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const syncReminders = useCallback(async (nextTodos: TodoLike[]) => {
@@ -255,34 +329,7 @@ export function usePushNotifications(todos: TodoLike[]) {
           applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
         }));
 
-      const json = subscription.toJSON();
-      if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) {
-        throw new Error("Ungültige Push-Subscription");
-      }
-
-      const deviceId = getOrCreateDeviceId();
-      const response = await fetch("/api/push/subscribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          deviceId,
-          subscription: {
-            endpoint: json.endpoint,
-            keys: {
-              p256dh: json.keys.p256dh,
-              auth: json.keys.auth,
-            },
-          },
-        }),
-      });
-
-      if (!response.ok) {
-        const data = (await response.json().catch(() => ({}))) as {
-          error?: string;
-        };
-        throw new Error(data.error ?? "Subscription fehlgeschlagen");
-      }
-
+      await postSubscriptionToServer(subscription);
       setIsSubscribed(true);
       await syncReminders(todos);
       await pollDueReminders();
