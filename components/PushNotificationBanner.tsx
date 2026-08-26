@@ -7,6 +7,8 @@ type PushNotificationBannerProps = {
   syncStatus?: string | null;
   onSubscribe: () => void;
   onUnsubscribe: () => void;
+  onTestPush?: () => void;
+  testPushStatus?: string | null;
   canUsePush: boolean;
 };
 
@@ -17,6 +19,8 @@ export function PushNotificationBanner({
   syncStatus,
   onSubscribe,
   onUnsubscribe,
+  onTestPush,
+  testPushStatus,
   canUsePush,
 }: PushNotificationBannerProps) {
   if (!canUsePush) return null;
@@ -37,19 +41,40 @@ export function PushNotificationBanner({
     return (
       <div
         role="status"
-        className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900"
+        className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900"
       >
-        <span>
-          Erinnerungen per Push sind aktiv.
-          {syncStatus ? ` ${syncStatus}` : ''}
-        </span>
-        <button
-          type="button"
-          onClick={onUnsubscribe}
-          className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-emerald-800 underline-offset-2 hover:underline"
-        >
-          Aus
-        </button>
+        <div className="flex items-center justify-between gap-3">
+          <span>
+            Erinnerungen per Push sind aktiv.
+            {syncStatus ? ` ${syncStatus}` : ""}
+          </span>
+          <button
+            type="button"
+            onClick={onUnsubscribe}
+            className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-emerald-800 underline-offset-2 hover:underline"
+          >
+            Aus
+          </button>
+        </div>
+        {onTestPush ? (
+          <button
+            type="button"
+            onClick={onTestPush}
+            className="mt-3 w-full rounded-xl bg-emerald-900 px-4 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90"
+          >
+            Test-Benachrichtigung senden
+          </button>
+        ) : null}
+        {testPushStatus ? (
+          <p className="mt-2 text-xs text-emerald-800" role="status">
+            {testPushStatus}
+          </p>
+        ) : null}
+        {error ? (
+          <p className="mt-2 text-xs text-red-600" role="alert">
+            {error}
+          </p>
+        ) : null}
       </div>
     );
   }

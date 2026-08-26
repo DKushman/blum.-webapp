@@ -28,16 +28,25 @@ interface PushPayload {
 }
 
 self.addEventListener("push", (event) => {
-  const payload: PushPayload = event.data
-    ? (event.data.json() as PushPayload)
-    : {};
+  let payload: PushPayload = {};
+  try {
+    if (event.data) {
+      payload = event.data.json() as PushPayload;
+    }
+  } catch {
+    try {
+      payload = { body: event.data?.text() };
+    } catch {
+      /* ignore */
+    }
+  }
 
   event.waitUntil(
     self.registration.showNotification(payload.title ?? "David von Blume", {
       body: payload.body ?? "Du hast eine Erinnerung.",
       icon: "/icons/icon-192.png",
       badge: "/icons/icon-192.png",
-      tag: payload.body,
+      tag: payload.body ?? "blume-reminder",
       data: { url: payload.url ?? "/" },
     })
   );

@@ -48,17 +48,25 @@ export async function scheduleReminders(
     // notBefore: mind. „jetzt“, damit QStash sehr nahe Erinnerungen sofort akzeptiert
     const notBefore = Math.max(Math.floor(now / 1000), Math.floor(remindAtMs / 1000));
 
+    // QStash: deduplicationId darf keine ':' enthalten (ISO-Zeiten/Separatoren).
+    const deduplicationId = [
+      deviceId,
+      reminder.todoId,
+      reminder.remindAt.replace(/[:.]/g, "-"),
+    ].join("_");
+
     try {
       await client.publishJSON({
         url: dispatchUrl,
         body: { deviceId, reminder },
         notBefore,
-        // Verhindert doppelte Einplanungen für dieselbe Aufgabe+Uhrzeit
-        deduplicationId: `${deviceId}:${reminder.todoId}:${reminder.remindAt}`,
+        deduplicationId,
       });
       scheduled += 1;
     } catch (error) {
-      console.error("QStash publish failed:", reminder.todoId, error);
+      const message =
+        error instanceof Error ? error.message : String(error ?? "unknown");
+      console.error("QStash publish failed:", reminder.todoId, message);
     }
   }
 

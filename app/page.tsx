@@ -774,8 +774,7 @@ export default function Home() {
                 notepadInputRef.current?.focus();
               }}
             >
-              {!push.isSubscribed && (
-                <div className="pt-3" data-no-day-swipe>
+              <div className="pt-3" data-no-day-swipe>
                   <PushNotificationBanner
                     status={push.status}
                     isSubscribed={push.isSubscribed}
@@ -787,10 +786,13 @@ export default function Home() {
                     onUnsubscribe={() => {
                       void push.unsubscribe();
                     }}
+                    onTestPush={() => {
+                      void push.sendTestPush();
+                    }}
+                    testPushStatus={push.testPushStatus}
                     canUsePush={push.canUsePush}
                   />
                 </div>
-              )}
               <div id="notes-list-inner" key={displayDayKey} className="day-view-content cursor-text pt-3 pb-10">
                 {currentTodos.length === 0 && !inlineNewTodoText && (
                   <p className="notepad-line-item text-[13px] text-[#B8B4A8]">Tippe, um zu schreiben…</p>

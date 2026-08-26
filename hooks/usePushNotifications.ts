@@ -362,13 +362,45 @@ export function usePushNotifications(todos: TodoLike[]) {
     }
   }, []);
 
+  const [testPushStatus, setTestPushStatus] = useState<string | null>(null);
+
+  const sendTestPush = useCallback(async () => {
+    setError(null);
+    setTestPushStatus("Sende Test…");
+    try {
+      const deviceId = getOrCreateDeviceId();
+      const response = await fetch("/api/push/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deviceId }),
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(data.error ?? "Test fehlgeschlagen");
+      }
+      setTestPushStatus(
+        "Gesendet. Wenn nichts erscheint: App vom Home-Bildschirm öffnen und Mitteilungen erlauben."
+      );
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Test fehlgeschlagen";
+      setError(message);
+      setTestPushStatus(null);
+      return false;
+    }
+  }, []);
+
   return {
     status,
     isSubscribed,
     error,
     syncStatus,
+    testPushStatus,
     subscribe,
     unsubscribe,
+    sendTestPush,
     canUsePush: status !== "unsupported",
   };
 }
